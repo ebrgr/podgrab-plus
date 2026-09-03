@@ -10,6 +10,19 @@
             background-color: indianred;
             color:wheat;
         }
+        .service-settings {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            border: 1px solid #d1d1d1;
+            border-radius: 4px;
+        }
+        .service-settings h4 {
+            margin-bottom: 1rem;
+        }
+        .service-help {
+            color: #666;
+            font-size: 90%;
+        }
         img{
             display: none;
         }
@@ -112,6 +125,54 @@
             <span class="label-body">The <code>User-Agent</code> header used when downloading podcasts</span>
             <input type="text" class="u-full-width" name="userAgent" v-model="userAgent">
         </label>
+
+        <div class="service-settings">
+            <h4>Processamento pós-download</h4>
+            <p class="service-help">Estas ações são executadas depois que o arquivo MP3 termina de ser baixado.</p>
+
+            <label for="editID3Tags">
+                <input type="checkbox" name="editID3Tags" v-model="editID3Tags">
+                <span class="label-body">Editar as tags ID3 do episódio</span>
+            </label>
+            <p class="service-help" v-if="editID3Tags">
+                Adiciona título, autor, podcast, gênero e data ao MP3. Configurações específicas por podcast podem incluir o número do episódio.
+            </p>
+
+            <label for="updateNavidrome">
+                <input type="checkbox" name="updateNavidrome" v-model="updateNavidrome">
+                <span class="label-body">Atualizar o Navidrome e suas playlists</span>
+            </label>
+
+            <div v-if="updateNavidrome">
+                <label for="navidromeHost">
+                    Endereço do Navidrome
+                    <input type="text" class="u-full-width" name="navidromeHost" v-model.trim="navidromeHost" placeholder="http://navidrome:4533">
+                </label>
+                <label for="navidromeUsername">
+                    Usuário
+                    <input type="text" class="u-full-width" name="navidromeUsername" v-model.trim="navidromeUsername" autocomplete="username">
+                </label>
+                <label for="navidromePassword">
+                    Senha
+                    <input type="password" class="u-full-width" name="navidromePassword" v-model="navidromePassword" autocomplete="new-password" :placeholder="navidromePasswordConfigured ? 'Senha já configurada; deixe vazio para manter' : 'Senha do Navidrome'">
+                </label>
+                <div class="row">
+                    <div class="columns six">
+                        <label for="navidromeWaitSeconds">
+                            Tempo máximo de espera (segundos)
+                            <input type="number" class="u-full-width" name="navidromeWaitSeconds" v-model.number="navidromeWaitSeconds" min="1">
+                        </label>
+                    </div>
+                    <div class="columns six">
+                        <label for="navidromePollSeconds">
+                            Intervalo de consulta (segundos)
+                            <input type="number" class="u-full-width" name="navidromePollSeconds" v-model.number="navidromePollSeconds" min="1">
+                        </label>
+                    </div>
+                </div>
+                <p class="service-help">Os IDs de álbum e playlist continuam sendo definidos por podcast no arquivo de integração.</p>
+            </div>
+        </div>
       
         <input type="submit" value="Save" class="button">
     </form>
@@ -191,6 +252,13 @@ var app = new Vue({
             baseUrl:self.baseUrl,
             maxDownloadConcurrency:self.maxDownloadConcurrency,
             userAgent:self.userAgent,
+            editID3Tags:self.editID3Tags,
+            updateNavidrome:self.updateNavidrome,
+            navidromeHost:self.navidromeHost,
+            navidromeUsername:self.navidromeUsername,
+            navidromePassword:self.navidromePassword,
+            navidromeWaitSeconds:self.navidromeWaitSeconds,
+            navidromePollSeconds:self.navidromePollSeconds,
         })
         .then(function(response){
             Vue.toasted.show('Settings saved successfully.' ,{
@@ -237,6 +305,14 @@ var app = new Vue({
     baseUrl: {{ .setting.BaseUrl }},
     maxDownloadConcurrency:{{ .setting.MaxDownloadConcurrency }},
     userAgent:{{ .setting.UserAgent}},
+    editID3Tags:{{ .setting.EditID3Tags }},
+    updateNavidrome:{{ .setting.UpdateNavidrome }},
+    navidromeHost:{{ .setting.NavidromeHost }},
+    navidromeUsername:{{ .setting.NavidromeUsername }},
+    navidromePassword:'',
+    navidromePasswordConfigured:{{ .navidromePasswordConfigured }},
+    navidromeWaitSeconds:{{ .setting.NavidromeWaitSeconds }},
+    navidromePollSeconds:{{ .setting.NavidromePollSeconds }},
   },
 
 })

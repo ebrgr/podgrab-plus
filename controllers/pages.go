@@ -33,6 +33,13 @@ type SettingModel struct {
 	BaseUrl                       string `form:"baseUrl" json:"baseUrl" query:"baseUrl"`
 	MaxDownloadConcurrency        int    `form:"maxDownloadConcurrency" json:"maxDownloadConcurrency" query:"maxDownloadConcurrency"`
 	UserAgent                     string `form:"userAgent" json:"userAgent" query:"userAgent"`
+	EditID3Tags                   bool   `form:"editID3Tags" json:"editID3Tags" query:"editID3Tags"`
+	UpdateNavidrome               bool   `form:"updateNavidrome" json:"updateNavidrome" query:"updateNavidrome"`
+	NavidromeHost                 string `form:"navidromeHost" json:"navidromeHost" query:"navidromeHost"`
+	NavidromeUsername             string `form:"navidromeUsername" json:"navidromeUsername" query:"navidromeUsername"`
+	NavidromePassword             string `form:"navidromePassword" json:"navidromePassword" query:"navidromePassword"`
+	NavidromeWaitSeconds          int    `form:"navidromeWaitSeconds" json:"navidromeWaitSeconds" query:"navidromeWaitSeconds"`
+	NavidromePollSeconds          int    `form:"navidromePollSeconds" json:"navidromePollSeconds" query:"navidromePollSeconds"`
 }
 
 var searchOptions = map[string]string{
@@ -191,9 +198,10 @@ func SettingsPage(c *gin.Context) {
 	setting := c.MustGet("setting").(*db.Setting)
 	diskStats, _ := db.GetPodcastEpisodeDiskStats()
 	c.HTML(http.StatusOK, "settings.html", gin.H{
-		"setting":   setting,
-		"title":     "Update your preferences",
-		"diskStats": diskStats,
+		"setting":                     setting,
+		"title":                       "Update your preferences",
+		"diskStats":                   diskStats,
+		"navidromePasswordConfigured": setting.NavidromePassword != "" || os.Getenv("NAVIDROME_PASSWORD") != "",
 	})
 
 }

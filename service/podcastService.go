@@ -533,8 +533,27 @@ func DownloadMissingEpisodes() error {
 		wg.Add(1)
 		go func(item db.PodcastItem, setting db.Setting) {
 			defer wg.Done()
-			url, _ := Download(item.FileURL, item.Title, item.Podcast.Title, GetPodcastPrefix(&item, &setting))
-			SetPodcastItemAsDownloaded(item.ID, url)
+			location, err := Download(item.FileURL, item.Title, item.Podcast.Title, GetPodcastPrefix(&item, &setting))
+			if err != nil {
+				Logger.Errorw("Episode download failed", "episode", item.ID, "error", err)
+				return
+			}
+			metadataReady := true
+			if err := ApplyPostDownloadMetadata(&item, location); err != nil {
+				metadataReady = false
+				Logger.Errorw("Post-download metadata failed", "episode", item.ID, "error", err)
+			}
+			if err := SetPodcastItemAsDownloaded(item.ID, location); err != nil {
+				Logger.Errorw("Could not mark episode as downloaded", "episode", item.ID, "error", err)
+				return
+			}
+			if metadataReady {
+				go func(downloadedItem db.PodcastItem) {
+					if err := NotifyNavidromeAfterDownload(&downloadedItem); err != nil {
+						Logger.Errorw("Navidrome post-download sync failed", "episode", downloadedItem.ID, "error", err)
+					}
+				}(item)
+			}
 		}(item, *setting)
 
 		if index%setting.MaxDownloadConcurrency == 0 {
@@ -600,13 +619,25 @@ func DownloadSingleEpisode(podcastItemId string) error {
 	setting := db.GetOrCreateSetting()
 	SetPodcastItemAsQueuedForDownload(podcastItemId)
 
-	url, err := Download(podcastItem.FileURL, podcastItem.Title, podcastItem.Podcast.Title, GetPodcastPrefix(&podcastItem, setting))
+	location, err := Download(podcastItem.FileURL, podcastItem.Title, podcastItem.Podcast.Title, GetPodcastPrefix(&podcastItem, setting))
 
 	if err != nil {
 		fmt.Println(err.Error())
 		return err
 	}
-	err = SetPodcastItemAsDownloaded(podcastItem.ID, url)
+	metadataReady := true
+	if err := ApplyPostDownloadMetadata(&podcastItem, location); err != nil {
+		metadataReady = false
+		Logger.Errorw("Post-download metadata failed", "episode", podcastItem.ID, "error", err)
+	}
+	err = SetPodcastItemAsDownloaded(podcastItem.ID, location)
+	if err == nil && metadataReady {
+		go func(downloadedItem db.PodcastItem) {
+			if syncErr := NotifyNavidromeAfterDownload(&downloadedItem); syncErr != nil {
+				Logger.Errorw("Navidrome post-download sync failed", "episode", downloadedItem.ID, "error", syncErr)
+			}
+		}(podcastItem)
+	}
 
 	if setting.DownloadEpisodeImages {
 		downloadImageLocally(podcastItem.ID)
@@ -764,7 +795,9 @@ func GetSearchFromPodcastIndex(pod *podcastindex.Podcast) *model.CommonSearchRes
 
 func UpdateSettings(downloadOnAdd bool, initialDownloadCount int, autoDownload bool,
 	appendDateToFileName bool, appendEpisodeNumberToFileName bool, darkMode bool, downloadEpisodeImages bool,
-	generateNFOFile bool, dontDownloadDeletedFromDisk bool, baseUrl string, maxDownloadConcurrency int, userAgent string) error {
+	generateNFOFile bool, dontDownloadDeletedFromDisk bool, baseUrl string, maxDownloadConcurrency int, userAgent string,
+	editID3Tags bool, updateNavidrome bool, navidromeHost string, navidromeUsername string, navidromePassword string,
+	navidromeWaitSeconds int, navidromePollSeconds int) error {
 	setting := db.GetOrCreateSetting()
 
 	setting.AutoDownload = autoDownload
@@ -779,6 +812,21 @@ func UpdateSettings(downloadOnAdd bool, initialDownloadCount int, autoDownload b
 	setting.BaseUrl = baseUrl
 	setting.MaxDownloadConcurrency = maxDownloadConcurrency
 	setting.UserAgent = userAgent
+	setting.EditID3Tags = editID3Tags
+	setting.UpdateNavidrome = updateNavidrome
+	setting.NavidromeHost = strings.TrimRight(strings.TrimSpace(navidromeHost), "/")
+	setting.NavidromeUsername = strings.TrimSpace(navidromeUsername)
+	if navidromePassword != "" {
+		setting.NavidromePassword = navidromePassword
+	}
+	if navidromeWaitSeconds <= 0 {
+		navidromeWaitSeconds = 60
+	}
+	if navidromePollSeconds <= 0 {
+		navidromePollSeconds = 5
+	}
+	setting.NavidromeWaitSeconds = navidromeWaitSeconds
+	setting.NavidromePollSeconds = navidromePollSeconds
 
 	return db.UpdateSettings(setting)
 }

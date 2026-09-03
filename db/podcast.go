@@ -89,6 +89,13 @@ type Setting struct {
 	BaseUrl                       string
 	MaxDownloadConcurrency        int `gorm:"default:5"`
 	UserAgent                     string
+	EditID3Tags                   bool `gorm:"default:false"`
+	UpdateNavidrome               bool `gorm:"default:false"`
+	NavidromeHost                 string
+	NavidromeUsername             string
+	NavidromePassword             string
+	NavidromeWaitSeconds          int `gorm:"default:60"`
+	NavidromePollSeconds          int `gorm:"default:5"`
 }
 type Migration struct {
 	Base

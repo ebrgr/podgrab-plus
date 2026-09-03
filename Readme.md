@@ -142,6 +142,28 @@ Although personally I feel that using the docker container is the best way of us
 | PASSWORD        | Set to some non empty value to enable Basic Authentication, username `podgrab`|(empty)|
 | PORT            | Change the internal port of the application. If you change this you might have to change your docker configuration as well | (empty) |  
 
+### ID3 and Navidrome post-download integration
+
+Copy `post-download.example.json` to `CONFIG/post-download.json` and configure
+the Podgrab podcast UUID, Navidrome album ID and playlist ID. The older
+`CONFIG/cousin-iddd.config.json` filename is also accepted. After an MP3 is
+downloaded, Podgrab writes the selected ID3 fields before requesting a
+Navidrome scan and rebuilding the playlist.
+
+| Name | Description | Default |
+| --- | --- | --- |
+| POST_DOWNLOAD_CONFIG | Optional custom path for the integration JSON file | `CONFIG/post-download.json` |
+| NAVIDROME_HOST | Navidrome base URL | (empty) |
+| NAVIDROME_USERNAME | Subsonic API username | (empty) |
+| NAVIDROME_PASSWORD | Subsonic API password | (empty) |
+| NAVIDROME_WAIT | Maximum time to wait for the episode to be indexed | `60s` |
+| NAVIDROME_POLL | Interval between album checks | `5s` |
+
+ID3 editing and Navidrome updates are disabled by default and can be enabled
+from the Settings page. Navidrome connection values saved in the UI take
+precedence over environment variables; environment variables remain available
+as a fallback.
+
 ### Setup
 
 - Enable *websocket support* if running behind a reverse proxy. This is needed for the "Add to playlist" functionality.
