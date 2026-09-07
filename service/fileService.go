@@ -451,6 +451,8 @@ func getRequest(url string) (*http.Request, error) {
 		req.Header.Add("User-Agent", setting.UserAgent)
 	}
 
+	req.Header.Add("Accept", "*/*")
+
 	return req, nil
 }
 
