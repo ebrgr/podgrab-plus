@@ -35,7 +35,7 @@ func ParseOpml(content string) (model.OpmlModel, error) {
 	return response, err
 }
 
-//FetchURL is
+// FetchURL is
 func FetchURL(url string) (model.PodcastData, []byte, error) {
 	body, err := makeQuery(url)
 	if err != nil {
@@ -406,26 +406,61 @@ func DownloadMissingImages() error {
 		return err
 	}
 	for _, item := range *items {
-		downloadImageLocally(item.ID)
+		imagePath, err := downloadImageLocally(item.ID, "")
+		if err != nil {
+			Logger.Errorw("Episode image download failed", "episode", item.ID, "error", err)
+			continue
+		}
+		if setting.EditID3Tags {
+			if err := ApplyPostDownloadMetadata(&item, item.DownloadPath, imagePath); err != nil {
+				Logger.Errorw("Episode cover embedding failed", "episode", item.ID, "error", err)
+			}
+		}
 	}
 	return nil
 }
 
-func downloadImageLocally(podcastItemId string) error {
+func downloadImageLocally(podcastItemId string, audioPath string) (string, error) {
 	var podcastItem db.PodcastItem
 	err := db.GetPodcastItemById(podcastItemId, &podcastItem)
 	if err != nil {
-		return err
+		return "", err
+	}
+	if audioPath == "" {
+		audioPath = podcastItem.DownloadPath
 	}
 
-	path, err := DownloadImage(podcastItem.Image, podcastItem.ID, podcastItem.Podcast.Title)
+	imagePath, err := DownloadImage(podcastItem.Image, audioPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	podcastItem.LocalImage = path
+	podcastItem.LocalImage = imagePath
 
-	return db.UpdatePodcastItem(&podcastItem)
+	return imagePath, db.UpdatePodcastItem(&podcastItem)
+}
+
+// episodeImageForPostDownload returns an image for the current post-download
+// operation. A sidecar is persisted only when saveSidecar is enabled; otherwise
+// the image is temporary and is removed after ID3 writing.
+func episodeImageForPostDownload(item *db.PodcastItem, audioPath string, saveSidecar bool, embedInID3 bool) (string, func(), error) {
+	if !saveSidecar && !embedInID3 {
+		return "", func() {}, nil
+	}
+	if saveSidecar {
+		imagePath, err := downloadImageLocally(item.ID, audioPath)
+		return imagePath, func() {}, err
+	}
+
+	imagePath, err := DownloadImageTemporary(item.Image, audioPath)
+	if err != nil {
+		return "", func() {}, err
+	}
+	return imagePath, func() {
+		if err := os.Remove(imagePath); err != nil && !os.IsNotExist(err) {
+			Logger.Warnw("Could not remove temporary episode image", "path", imagePath, "error", err)
+		}
+	}, nil
 }
 
 func SetPodcastItemBookmarkStatus(id string, bookmark bool) error {
@@ -520,32 +555,56 @@ func DownloadMissingEpisodes() error {
 		return nil
 	}
 	db.Lock(JOB_NAME, 120)
+	// Always release the lock, including when loading the episode list fails.
+	// Without this defer a transient database error leaves downloads blocked until
+	// the lock timeout is reached.
+	defer db.Unlock(JOB_NAME)
+
 	setting := db.GetOrCreateSetting()
 
 	data, err := db.GetAllPodcastItemsToBeDownloaded()
-
-	fmt.Println("Processing episodes: ", strconv.Itoa(len(*data)))
 	if err != nil {
 		return err
 	}
+
+	fmt.Println("Processing episodes: ", strconv.Itoa(len(*data)))
+	maxConcurrency := setting.MaxDownloadConcurrency
+	if maxConcurrency < 1 {
+		maxConcurrency = 1
+		Logger.Warnw("Invalid maximum download concurrency; using one worker")
+	}
+	workers := make(chan struct{}, maxConcurrency)
 	var wg sync.WaitGroup
-	for index, item := range *data {
+	for _, item := range *data {
+		workers <- struct{}{}
 		wg.Add(1)
 		go func(item db.PodcastItem, setting db.Setting) {
-			defer wg.Done()
+			defer func() {
+				<-workers
+				wg.Done()
+			}()
 			location, err := Download(item.FileURL, item.Title, item.Podcast.Title, GetPodcastPrefix(&item, &setting))
 			if err != nil {
 				Logger.Errorw("Episode download failed", "episode", item.ID, "error", err)
 				return
 			}
+			localImage, removeTemporaryImage, imageErr := episodeImageForPostDownload(&item, location, setting.DownloadEpisodeImages, setting.EditID3Tags)
+			defer removeTemporaryImage()
+			if imageErr != nil {
+				Logger.Errorw("Episode image download failed", "episode", item.ID, "error", imageErr)
+				localImage = ""
+			}
 			metadataReady := true
-			if err := ApplyPostDownloadMetadata(&item, location); err != nil {
+			if err := ApplyPostDownloadMetadata(&item, location, localImage); err != nil {
 				metadataReady = false
 				Logger.Errorw("Post-download metadata failed", "episode", item.ID, "error", err)
 			}
 			if err := SetPodcastItemAsDownloaded(item.ID, location); err != nil {
 				Logger.Errorw("Could not mark episode as downloaded", "episode", item.ID, "error", err)
 				return
+			}
+			if err := CreateOrUpdatePodcastPlaylist(item.PodcastID); err != nil {
+				Logger.Errorw("Playlist post-download update failed", "podcast", item.PodcastID, "error", err)
 			}
 			if metadataReady {
 				go func(downloadedItem db.PodcastItem) {
@@ -555,13 +614,8 @@ func DownloadMissingEpisodes() error {
 				}(item)
 			}
 		}(item, *setting)
-
-		if index%setting.MaxDownloadConcurrency == 0 {
-			wg.Wait()
-		}
 	}
 	wg.Wait()
-	db.Unlock(JOB_NAME)
 	return nil
 }
 func CheckMissingFiles() error {
@@ -625,12 +679,23 @@ func DownloadSingleEpisode(podcastItemId string) error {
 		fmt.Println(err.Error())
 		return err
 	}
+	localImage, removeTemporaryImage, imageErr := episodeImageForPostDownload(&podcastItem, location, setting.DownloadEpisodeImages, setting.EditID3Tags)
+	defer removeTemporaryImage()
+	if imageErr != nil {
+		Logger.Errorw("Episode image download failed", "episode", podcastItem.ID, "error", imageErr)
+		localImage = ""
+	}
 	metadataReady := true
-	if err := ApplyPostDownloadMetadata(&podcastItem, location); err != nil {
+	if err := ApplyPostDownloadMetadata(&podcastItem, location, localImage); err != nil {
 		metadataReady = false
 		Logger.Errorw("Post-download metadata failed", "episode", podcastItem.ID, "error", err)
 	}
 	err = SetPodcastItemAsDownloaded(podcastItem.ID, location)
+	if err == nil {
+		if playlistErr := CreateOrUpdatePodcastPlaylist(podcastItem.PodcastID); playlistErr != nil {
+			Logger.Errorw("Playlist post-download update failed", "podcast", podcastItem.PodcastID, "error", playlistErr)
+		}
+	}
 	if err == nil && metadataReady {
 		go func(downloadedItem db.PodcastItem) {
 			if syncErr := NotifyNavidromeAfterDownload(&downloadedItem); syncErr != nil {
@@ -639,9 +704,6 @@ func DownloadSingleEpisode(podcastItemId string) error {
 		}(podcastItem)
 	}
 
-	if setting.DownloadEpisodeImages {
-		downloadImageLocally(podcastItem.ID)
-	}
 	return err
 }
 
@@ -795,7 +857,7 @@ func GetSearchFromPodcastIndex(pod *podcastindex.Podcast) *model.CommonSearchRes
 
 func UpdateSettings(downloadOnAdd bool, initialDownloadCount int, autoDownload bool,
 	appendDateToFileName bool, appendEpisodeNumberToFileName bool, darkMode bool, downloadEpisodeImages bool,
-	generateNFOFile bool, dontDownloadDeletedFromDisk bool, baseUrl string, maxDownloadConcurrency int, userAgent string,
+	generateNFOFile bool, createM3UPlaylists bool, dontDownloadDeletedFromDisk bool, baseUrl string, maxDownloadConcurrency int, userAgent string,
 	editID3Tags bool, updateNavidrome bool, navidromeHost string, navidromeUsername string, navidromePassword string,
 	navidromeWaitSeconds int, navidromePollSeconds int) error {
 	setting := db.GetOrCreateSetting()
@@ -808,6 +870,7 @@ func UpdateSettings(downloadOnAdd bool, initialDownloadCount int, autoDownload b
 	setting.DarkMode = darkMode
 	setting.DownloadEpisodeImages = downloadEpisodeImages
 	setting.GenerateNFOFile = generateNFOFile
+	setting.CreateM3UPlaylists = createM3UPlaylists
 	setting.DontDownloadDeletedFromDisk = dontDownloadDeletedFromDisk
 	setting.BaseUrl = baseUrl
 	setting.MaxDownloadConcurrency = maxDownloadConcurrency

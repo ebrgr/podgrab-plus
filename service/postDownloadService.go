@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/akhilrex/podgrab/db"
@@ -20,6 +23,10 @@ import (
 )
 
 const navidromeClientName = "podgrab"
+
+var navidromeSyncMu sync.Mutex
+
+var defaultID3MetadataAttrs = []string{"title", "artist", "album", "genre", "date"}
 
 // PostDownloadConfig is stored in CONFIG/post-download.json. A podcast is
 // matched by its Podgrab UUID, so filenames and folder names are irrelevant.
@@ -29,8 +36,10 @@ type PostDownloadConfig struct {
 
 type PostDownloadPodcastConfig struct {
 	PodgrabID        json.RawMessage `json:"podgrab_id"`
-	AlbumID          string          `json:"album_id"`
-	PlaylistID       string          `json:"playlist_id"`
+	AlbumID          string          `json:"album_id,omitempty"`
+	AlbumName        string          `json:"album_name,omitempty"`
+	PlaylistID       string          `json:"playlist_id,omitempty"`
+	PlaylistName     string          `json:"playlist_name,omitempty"`
 	MetadataAttrs    []string        `json:"metadata_attributes"`
 	FilteredPrefixes []string        `json:"filtered_prefixes"`
 	EpisodePrefix    *EpisodePrefix  `json:"episode_prefix"`
@@ -56,10 +65,12 @@ type subsonicEnvelope struct {
 }
 
 type subsonicResponse struct {
-	Status   string            `json:"status"`
-	Error    *subsonicAPIError `json:"error,omitempty"`
-	Album    subsonicAlbum     `json:"album"`
-	Playlist subsonicPlaylist  `json:"playlist"`
+	Status        string                 `json:"status"`
+	Error         *subsonicAPIError      `json:"error,omitempty"`
+	Album         subsonicAlbum          `json:"album"`
+	Playlist      subsonicPlaylist       `json:"playlist"`
+	SearchResult3 subsonicSearchResult3  `json:"searchResult3"`
+	Playlists     subsonicPlaylistResult `json:"playlists"`
 }
 
 type subsonicAPIError struct {
@@ -68,10 +79,22 @@ type subsonicAPIError struct {
 }
 
 type subsonicAlbum struct {
-	Songs []subsonicSong `json:"song"`
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	Artist string         `json:"artist"`
+	Songs  []subsonicSong `json:"song"`
+}
+
+type subsonicSearchResult3 struct {
+	Albums []subsonicAlbum `json:"album"`
+}
+
+type subsonicPlaylistResult struct {
+	Playlists []subsonicPlaylist `json:"playlist"`
 }
 
 type subsonicPlaylist struct {
+	ID      string         `json:"id"`
 	Name    string         `json:"name"`
 	Entries []subsonicSong `json:"entry"`
 }
@@ -83,24 +106,22 @@ type subsonicSong struct {
 
 // ApplyPostDownloadMetadata writes ID3 before Navidrome can index the MP3.
 // A missing config or a podcast absent from the config is intentionally a no-op.
-func ApplyPostDownloadMetadata(item *db.PodcastItem, mediaPath string) error {
+func ApplyPostDownloadMetadata(item *db.PodcastItem, mediaPath string, imagePath string) error {
 	setting := db.GetOrCreateSetting()
 	if !setting.EditID3Tags {
 		return nil
 	}
-	showConfig, enabled, err := postDownloadPodcastConfig(item.PodcastID)
+	showConfig, _, err := postDownloadPodcastConfig(item.PodcastID)
 	if err != nil {
 		return err
 	}
-	if !enabled {
-		showConfig.MetadataAttrs = []string{"title", "artist", "album", "genre", "date"}
-	}
+	showConfig.MetadataAttrs = effectiveMetadataAttrs(showConfig.MetadataAttrs)
 
 	metadata, err := metadataForEpisode(item, showConfig)
 	if err != nil {
 		return err
 	}
-	return writeEpisodeID3(mediaPath, showConfig.MetadataAttrs, metadata)
+	return writeEpisodeID3(mediaPath, showConfig.MetadataAttrs, metadata, imagePath)
 }
 
 // NotifyNavidromeAfterDownload asks Navidrome to scan and then rebuilds the
@@ -111,9 +132,25 @@ func NotifyNavidromeAfterDownload(item *db.PodcastItem) error {
 	if !setting.UpdateNavidrome {
 		return nil
 	}
-	showConfig, enabled, err := postDownloadPodcastConfig(item.PodcastID)
-	if err != nil || !enabled || showConfig.AlbumID == "" || showConfig.PlaylistID == "" {
+
+	// Downloads may finish concurrently. Serializing discovery prevents two
+	// goroutines from creating the same playlist or overwriting the config file.
+	navidromeSyncMu.Lock()
+	defer navidromeSyncMu.Unlock()
+
+	config, configPath, configKey, showConfig, enabled, err := loadPostDownloadPodcastConfig(item.PodcastID)
+	if err != nil {
 		return err
+	}
+	if !enabled {
+		configKey = item.PodcastID
+		showConfig = defaultPostDownloadPodcastConfig(item)
+	}
+	if showConfig.AlbumName == "" {
+		showConfig.AlbumName = item.Podcast.Title
+	}
+	if showConfig.PlaylistName == "" {
+		showConfig.PlaylistName = "Últimos episódios - " + item.Podcast.Title
 	}
 
 	client, err := newNavidromeClient(setting)
@@ -133,24 +170,32 @@ func NotifyNavidromeAfterDownload(item *db.PodcastItem) error {
 	if poll <= 0 {
 		poll = envDuration("NAVIDROME_POLL", 5*time.Second)
 	}
-	deadline := time.Now().Add(wait)
-	for {
-		album, albumErr := client.getAlbum(showConfig.AlbumID)
-		if albumErr == nil && albumHasTitle(album, item.Title) {
-			return client.rebuildPlaylist(showConfig, item.PodcastID, album)
-		}
-		if time.Now().Add(poll).After(deadline) {
-			if albumErr != nil {
-				return albumErr
-			}
-			return fmt.Errorf("episode %q did not appear in Navidrome after %s", item.Title, wait)
-		}
-		time.Sleep(poll)
+	album, err := client.waitForAlbum(showConfig, item, wait, poll)
+	if err != nil {
+		return err
 	}
+	showConfig.AlbumID = album.ID
+
+	playlist, err := client.findOrCreatePlaylist(showConfig)
+	if err != nil {
+		return err
+	}
+	showConfig.PlaylistID = playlist.ID
+	config.Podcasts[configKey] = showConfig
+	if err := savePostDownloadConfig(configPath, config); err != nil {
+		return err
+	}
+
+	return client.rebuildPlaylist(showConfig, item.PodcastID, album)
 }
 
 func postDownloadPodcastConfig(podcastID string) (PostDownloadPodcastConfig, bool, error) {
-	var config PostDownloadConfig
+	_, _, _, showConfig, enabled, err := loadPostDownloadPodcastConfig(podcastID)
+	return showConfig, enabled, err
+}
+
+func loadPostDownloadPodcastConfig(podcastID string) (PostDownloadConfig, string, string, PostDownloadPodcastConfig, bool, error) {
+	config := PostDownloadConfig{Podcasts: make(map[string]PostDownloadPodcastConfig)}
 	configPath := os.Getenv("POST_DOWNLOAD_CONFIG")
 	if configPath == "" {
 		configPath = path.Join(os.Getenv("CONFIG"), "post-download.json")
@@ -158,28 +203,76 @@ func postDownloadPodcastConfig(podcastID string) (PostDownloadPodcastConfig, boo
 	file, err := os.Open(configPath)
 	if errors.Is(err, os.ErrNotExist) && os.Getenv("POST_DOWNLOAD_CONFIG") == "" {
 		// Backwards-compatible path used by the original one-shot command.
-		file, err = os.Open(path.Join(os.Getenv("CONFIG"), "cousin-iddd.config.json"))
+		legacyPath := path.Join(os.Getenv("CONFIG"), "cousin-iddd.config.json")
+		file, err = os.Open(legacyPath)
+		if err == nil {
+			configPath = legacyPath
+		}
 	}
 	if errors.Is(err, os.ErrNotExist) {
-		return PostDownloadPodcastConfig{}, false, nil
+		return config, configPath, "", PostDownloadPodcastConfig{}, false, nil
 	}
 	if err != nil {
-		return PostDownloadPodcastConfig{}, false, err
+		return config, configPath, "", PostDownloadPodcastConfig{}, false, err
 	}
 	defer file.Close()
 	if err := json.NewDecoder(file).Decode(&config); err != nil {
-		return PostDownloadPodcastConfig{}, false, fmt.Errorf("invalid post-download config: %w", err)
+		return config, configPath, "", PostDownloadPodcastConfig{}, false, fmt.Errorf("invalid post-download config: %w", err)
 	}
-	for _, showConfig := range config.Podcasts {
+	if config.Podcasts == nil {
+		config.Podcasts = make(map[string]PostDownloadPodcastConfig)
+	}
+	for key, showConfig := range config.Podcasts {
 		id, err := rawConfigID(showConfig.PodgrabID)
 		if err != nil {
-			return PostDownloadPodcastConfig{}, false, err
+			return config, configPath, "", PostDownloadPodcastConfig{}, false, err
 		}
 		if id == podcastID {
-			return showConfig, true, nil
+			return config, configPath, key, showConfig, true, nil
 		}
 	}
-	return PostDownloadPodcastConfig{}, false, nil
+	return config, configPath, "", PostDownloadPodcastConfig{}, false, nil
+}
+
+func defaultPostDownloadPodcastConfig(item *db.PodcastItem) PostDownloadPodcastConfig {
+	return PostDownloadPodcastConfig{
+		PodgrabID:     json.RawMessage(strconv.Quote(item.PodcastID)),
+		AlbumName:     item.Podcast.Title,
+		PlaylistName:  "Últimos episódios - " + item.Podcast.Title,
+		MetadataAttrs: append([]string(nil), defaultID3MetadataAttrs...),
+		PlaylistSize:  17,
+	}
+}
+
+func savePostDownloadConfig(configPath string, config PostDownloadConfig) error {
+	if configPath == "" {
+		return errors.New("post-download config path is empty")
+	}
+	if err := os.MkdirAll(path.Dir(configPath), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	temporary, err := ioutil.TempFile(path.Dir(configPath), ".post-download-*.json")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := temporary.Write(append(data, '\n')); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, configPath)
 }
 
 func metadataForEpisode(item *db.PodcastItem, config PostDownloadPodcastConfig) (episodeMetadata, error) {
@@ -209,12 +302,19 @@ func metadataForEpisode(item *db.PodcastItem, config PostDownloadPodcastConfig) 
 	return metadata, nil
 }
 
-func writeEpisodeID3(mediaPath string, attrs []string, metadata episodeMetadata) error {
+func writeEpisodeID3(mediaPath string, attrs []string, metadata episodeMetadata, imagePath string) error {
 	tag, err := id3v2.Open(mediaPath, id3v2.Options{Parse: true})
 	if err != nil {
 		return err
 	}
 	defer tag.Close()
+	encoding := id3v2.EncodingUTF8
+	if tag.Version() == 3 {
+		// ID3v2.3 does not support UTF-8. UTF-16 preserves characters such as
+		// en dashes, stars and non-Latin alphabets without converting the tag.
+		encoding = id3v2.EncodingUTF16
+	}
+	tag.SetDefaultEncoding(encoding)
 	enabled := stringSet(attrs)
 	if enabled["title"] {
 		tag.SetTitle(metadata.Title)
@@ -231,14 +331,68 @@ func writeEpisodeID3(mediaPath string, attrs []string, metadata episodeMetadata)
 	if enabled["track_num"] && metadata.TrackNumber != "" {
 		id := tag.CommonID("Track number/Position in set")
 		tag.DeleteFrames(id)
-		tag.AddTextFrame(id, id3v2.EncodingUTF8, metadata.TrackNumber)
+		tag.AddTextFrame(id, encoding, metadata.TrackNumber)
 	}
 	if enabled["date"] {
-		id := tag.CommonID("Recording time")
-		tag.DeleteFrames(id)
-		tag.AddTextFrame(id, id3v2.EncodingUTF8, metadata.Date)
+		writeID3Date(tag, encoding, metadata.Date)
+	}
+	if imagePath != "" {
+		if err := writeID3Cover(tag, encoding, imagePath); err != nil {
+			return err
+		}
 	}
 	return tag.Save()
+}
+
+func writeID3Cover(tag *id3v2.Tag, _ id3v2.Encoding, imagePath string) error {
+	picture, err := ioutil.ReadFile(imagePath)
+	if err != nil {
+		return err
+	}
+	if len(picture) == 0 {
+		return errors.New("episode image is empty")
+	}
+	mimeType := mime.TypeByExtension(strings.ToLower(filepath.Ext(imagePath)))
+	if !strings.HasPrefix(mimeType, "image/") {
+		mimeType = "image/jpeg"
+	}
+	tag.DeleteFrames(tag.CommonID("Attached picture"))
+	tag.AddAttachedPicture(id3v2.PictureFrame{
+		// Keep the APIC description empty and ISO-8859-1. Some players do not
+		// correctly skip the two-byte UTF-16 terminator and then see a leading
+		// NUL byte before the JPEG header, making the embedded cover unreadable.
+		Encoding:    id3v2.EncodingISO,
+		MimeType:    mimeType,
+		PictureType: id3v2.PTFrontCover,
+		Description: "",
+		Picture:     picture,
+	})
+	return nil
+}
+
+func writeID3Date(tag *id3v2.Tag, encoding id3v2.Encoding, value string) {
+	parsed, err := time.Parse("2006-01-02T15:04:05Z", value)
+	if tag.Version() == 3 {
+		// ID3v2.3 represents the recording date in separate TYER, TDAT and
+		// TIME frames. TDRC only exists in ID3v2.4.
+		frames := map[string]string{
+			"Year": parsed.Format("2006"),
+			"Date": parsed.Format("0201"),
+			"Time": parsed.Format("1504"),
+		}
+		if err != nil {
+			frames = map[string]string{"Year": value}
+		}
+		for description, frameValue := range frames {
+			id := tag.CommonID(description)
+			tag.DeleteFrames(id)
+			tag.AddTextFrame(id, encoding, frameValue)
+		}
+		return
+	}
+	id := tag.CommonID("Recording time")
+	tag.DeleteFrames(id)
+	tag.AddTextFrame(id, encoding, value)
 }
 
 type navidromeClient struct {
@@ -282,6 +436,99 @@ func (client *navidromeClient) getAlbum(id string) (subsonicAlbum, error) {
 		return subsonicAlbum{}, err
 	}
 	return envelope.Response.Album, nil
+}
+
+func (client *navidromeClient) searchAlbum(name, artist string) (subsonicAlbum, bool, error) {
+	values := url.Values{
+		"query":       {name},
+		"albumCount":  {"100"},
+		"artistCount": {"0"},
+		"songCount":   {"0"},
+	}
+	var envelope subsonicEnvelope
+	if err := client.call("search3", values, &envelope); err != nil {
+		return subsonicAlbum{}, false, err
+	}
+	var nameMatch *subsonicAlbum
+	for index := range envelope.Response.SearchResult3.Albums {
+		album := &envelope.Response.SearchResult3.Albums[index]
+		if !strings.EqualFold(strings.TrimSpace(album.Name), strings.TrimSpace(name)) {
+			continue
+		}
+		if nameMatch == nil {
+			nameMatch = album
+		}
+		if artist == "" || strings.EqualFold(strings.TrimSpace(album.Artist), strings.TrimSpace(artist)) {
+			return *album, true, nil
+		}
+	}
+	if nameMatch != nil {
+		return *nameMatch, true, nil
+	}
+	return subsonicAlbum{}, false, nil
+}
+
+func (client *navidromeClient) waitForAlbum(config PostDownloadPodcastConfig, item *db.PodcastItem, wait, poll time.Duration) (subsonicAlbum, error) {
+	deadline := time.Now().Add(wait)
+	var lastErr error
+	for {
+		if config.AlbumID != "" {
+			album, err := client.getAlbum(config.AlbumID)
+			if err == nil && albumHasTitle(album, item.Title) {
+				return album, nil
+			}
+			lastErr = err
+		} else {
+			match, found, err := client.searchAlbum(config.AlbumName, item.Podcast.Author)
+			lastErr = err
+			if err == nil && found {
+				album, getErr := client.getAlbum(match.ID)
+				lastErr = getErr
+				if getErr == nil && albumHasTitle(album, item.Title) {
+					return album, nil
+				}
+			}
+		}
+		if time.Now().Add(poll).After(deadline) {
+			if lastErr != nil {
+				return subsonicAlbum{}, lastErr
+			}
+			return subsonicAlbum{}, fmt.Errorf("episode %q did not appear in Navidrome album %q after %s", item.Title, config.AlbumName, wait)
+		}
+		time.Sleep(poll)
+	}
+}
+
+func (client *navidromeClient) getPlaylists() ([]subsonicPlaylist, error) {
+	var envelope subsonicEnvelope
+	if err := client.call("getPlaylists", nil, &envelope); err != nil {
+		return nil, err
+	}
+	return envelope.Response.Playlists.Playlists, nil
+}
+
+func (client *navidromeClient) findOrCreatePlaylist(config PostDownloadPodcastConfig) (subsonicPlaylist, error) {
+	playlists, err := client.getPlaylists()
+	if err != nil {
+		return subsonicPlaylist{}, err
+	}
+	for _, playlist := range playlists {
+		if config.PlaylistID != "" && playlist.ID == config.PlaylistID {
+			return playlist, nil
+		}
+		if strings.EqualFold(strings.TrimSpace(playlist.Name), strings.TrimSpace(config.PlaylistName)) {
+			return playlist, nil
+		}
+	}
+	values := url.Values{"name": {config.PlaylistName}}
+	var envelope subsonicEnvelope
+	if err := client.call("createPlaylist", values, &envelope); err != nil {
+		return subsonicPlaylist{}, err
+	}
+	if envelope.Response.Playlist.ID == "" {
+		return subsonicPlaylist{}, errors.New("Navidrome created a playlist without returning its ID")
+	}
+	return envelope.Response.Playlist, nil
 }
 
 func (client *navidromeClient) rebuildPlaylist(config PostDownloadPodcastConfig, podcastID string, album subsonicAlbum) error {
@@ -410,6 +657,12 @@ func stringSet(values []string) map[string]bool {
 		result[value] = true
 	}
 	return result
+}
+func effectiveMetadataAttrs(values []string) []string {
+	if len(values) == 0 {
+		return append([]string(nil), defaultID3MetadataAttrs...)
+	}
+	return values
 }
 func envDuration(key string, fallback time.Duration) time.Duration {
 	if value := os.Getenv(key); value != "" {

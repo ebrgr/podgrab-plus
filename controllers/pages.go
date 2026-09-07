@@ -29,6 +29,7 @@ type SettingModel struct {
 	DarkMode                      bool   `form:"darkMode" json:"darkMode" query:"darkMode"`
 	DownloadEpisodeImages         bool   `form:"downloadEpisodeImages" json:"downloadEpisodeImages" query:"downloadEpisodeImages"`
 	GenerateNFOFile               bool   `form:"generateNFOFile" json:"generateNFOFile" query:"generateNFOFile"`
+	CreateM3UPlaylists            bool   `form:"createM3UPlaylists" json:"createM3UPlaylists" query:"createM3UPlaylists"`
 	DontDownloadDeletedFromDisk   bool   `form:"dontDownloadDeletedFromDisk" json:"dontDownloadDeletedFromDisk" query:"dontDownloadDeletedFromDisk"`
 	BaseUrl                       string `form:"baseUrl" json:"baseUrl" query:"baseUrl"`
 	MaxDownloadConcurrency        int    `form:"maxDownloadConcurrency" json:"maxDownloadConcurrency" query:"maxDownloadConcurrency"`

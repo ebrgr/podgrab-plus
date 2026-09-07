@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-//Podcast is
+// Podcast is
 type Podcast struct {
 	Base
 	Title string
@@ -34,7 +34,7 @@ type Podcast struct {
 	IsPaused bool `gorm:"default:false"`
 }
 
-//PodcastItem is
+// PodcastItem is
 type PodcastItem struct {
 	Base
 	PodcastID string
@@ -85,6 +85,7 @@ type Setting struct {
 	DarkMode                      bool `gorm:"default:false"`
 	DownloadEpisodeImages         bool `gorm:"default:false"`
 	GenerateNFOFile               bool `gorm:"default:false"`
+	CreateM3UPlaylists            bool `gorm:"default:false"`
 	DontDownloadDeletedFromDisk   bool `gorm:"default:false"`
 	BaseUrl                       string
 	MaxDownloadConcurrency        int `gorm:"default:5"`
@@ -118,7 +119,10 @@ type Tag struct {
 }
 
 func (lock *JobLock) IsLocked() bool {
-	return lock != nil && lock.Date != time.Time{}
+	if lock == nil || lock.Date.IsZero() || lock.Duration <= 0 {
+		return false
+	}
+	return time.Now().Before(lock.Date.Add(time.Duration(lock.Duration) * time.Minute))
 }
 
 type PodcastItemStatsModel struct {

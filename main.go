@@ -52,6 +52,7 @@ func main() {
 			return raw == (time.Time{})
 		},
 		"formatDate": func(raw time.Time) string {
+			//if time.Time.Equal(raw) {
 			if raw == (time.Time{}) {
 				return ""
 			}

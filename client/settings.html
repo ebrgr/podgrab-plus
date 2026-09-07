@@ -103,11 +103,15 @@
         </label>
         <label for="downloadEpisodeImages">
             <input type="checkbox" name="downloadEpisodeImages" v-model="downloadEpisodeImages">
-            <span class="label-body">Download Episode Images with files</span>
+            <span class="label-body">Download Episode Images with files (save a JPG beside each MP3)</span>
         </label>
         <label for="generateNFOFile">
             <input type="checkbox" name="generateNFOFile" v-model="generateNFOFile">
             <span class="label-body">Generate NFO files for Podcasts</span>
+        </label>
+        <label for="createM3UPlaylists">
+            <input type="checkbox" name="createM3UPlaylists" v-model="createM3UPlaylists">
+            <span class="label-body">Create/update M3U playlists for downloaded podcast episodes</span>
         </label>
         <label for="dontDownloadDeletedFromDisk">
             <input type="checkbox" name="dontDownloadDeletedFromDisk" v-model="dontDownloadDeletedFromDisk">
@@ -135,7 +139,7 @@
                 <span class="label-body">Editar as tags ID3 do episódio</span>
             </label>
             <p class="service-help" v-if="editID3Tags">
-                Adiciona título, autor, podcast, gênero e data ao MP3. Configurações específicas por podcast podem incluir o número do episódio.
+                Adiciona título, autor, podcast, gênero, data e a capa do episódio ao MP3. A capa é incorporada mesmo sem salvar um JPG ao lado do arquivo.
             </p>
 
             <label for="updateNavidrome">
@@ -170,7 +174,7 @@
                         </label>
                     </div>
                 </div>
-                <p class="service-help">Os IDs de álbum e playlist continuam sendo definidos por podcast no arquivo de integração.</p>
+                <p class="service-help">No primeiro download, o Podgrab procura o álbum e cria a playlist automaticamente. Os IDs descobertos são guardados no arquivo de integração.</p>
             </div>
         </div>
       
@@ -248,6 +252,7 @@ var app = new Vue({
             darkMode:self.darkMode,
             downloadEpisodeImages:self.downloadEpisodeImages,
             generateNFOFile:self.generateNFOFile,
+            createM3UPlaylists:self.createM3UPlaylists,
             dontDownloadDeletedFromDisk:self.dontDownloadDeletedFromDisk,
             baseUrl:self.baseUrl,
             maxDownloadConcurrency:self.maxDownloadConcurrency,
@@ -301,6 +306,7 @@ var app = new Vue({
     originalThemeSetting:{{ .setting.DarkMode }},
     downloadEpisodeImages:{{.setting.DownloadEpisodeImages }},
     generateNFOFile:{{ .setting.GenerateNFOFile }},
+    createM3UPlaylists:{{ .setting.CreateM3UPlaylists }},
     dontDownloadDeletedFromDisk:{{ .setting.DontDownloadDeletedFromDisk }},
     baseUrl: {{ .setting.BaseUrl }},
     maxDownloadConcurrency:{{ .setting.MaxDownloadConcurrency }},

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/akhilrex/podgrab/db"
@@ -30,12 +32,13 @@ func Download(link string, episodeTitle string, podcastName string, prefix strin
 
 	req, err := getRequest(link)
 	if err != nil {
-		Logger.Errorw("Error creating request: "+link, err)
+		Logger.Errorw("Error creating request", "url", link, "error", err)
+		return "", err
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		Logger.Errorw("Error getting response: "+link, err)
+		Logger.Errorw("Error getting response", "url", link, "error", err)
 		return "", err
 	}
 
@@ -53,16 +56,21 @@ func Download(link string, episodeTitle string, podcastName string, prefix strin
 
 	file, err := os.Create(finalPath)
 	if err != nil {
-		Logger.Errorw("Error creating file"+link, err)
+		Logger.Errorw("Error creating file", "path", finalPath, "error", err)
 		return "", err
 	}
 	defer resp.Body.Close()
-	_, erra := io.Copy(file, resp.Body)
-	//fmt.Println(size)
-	defer file.Close()
-	if erra != nil {
-		Logger.Errorw("Error saving file"+link, err)
-		return "", erra
+	_, copyErr := io.Copy(file, resp.Body)
+	closeErr := file.Close()
+	if copyErr != nil {
+		_ = os.Remove(finalPath)
+		Logger.Errorw("Error saving file", "path", finalPath, "error", copyErr)
+		return "", copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(finalPath)
+		Logger.Errorw("Error closing file", "path", finalPath, "error", closeErr)
+		return "", closeErr
 	}
 	changeOwnership(finalPath)
 	return finalPath, nil
@@ -110,13 +118,13 @@ func DownloadPodcastCoverImage(link string, podcastName string) (string, error) 
 	client := httpClient()
 	req, err := getRequest(link)
 	if err != nil {
-		Logger.Errorw("Error creating request: "+link, err)
+		Logger.Errorw("Error creating request", "url", link, "error", err)
 		return "", err
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		Logger.Errorw("Error getting response: "+link, err)
+		Logger.Errorw("Error getting response", "url", link, "error", err)
 		return "", err
 	}
 
@@ -131,42 +139,53 @@ func DownloadPodcastCoverImage(link string, podcastName string) (string, error) 
 
 	file, err := os.Create(finalPath)
 	if err != nil {
-		Logger.Errorw("Error creating file"+link, err)
+		Logger.Errorw("Error creating file", "path", finalPath, "error", err)
 		return "", err
 	}
 	defer resp.Body.Close()
-	_, erra := io.Copy(file, resp.Body)
-	//fmt.Println(size)
-	defer file.Close()
-	if erra != nil {
-		Logger.Errorw("Error saving file"+link, err)
-		return "", erra
+	_, copyErr := io.Copy(file, resp.Body)
+	closeErr := file.Close()
+	if copyErr != nil {
+		_ = os.Remove(finalPath)
+		Logger.Errorw("Error saving file", "path", finalPath, "error", copyErr)
+		return "", copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(finalPath)
+		Logger.Errorw("Error closing file", "path", finalPath, "error", closeErr)
+		return "", closeErr
 	}
 	changeOwnership(finalPath)
 	return finalPath, nil
 }
 
-func DownloadImage(link string, episodeId string, podcastName string) (string, error) {
+// DownloadImage saves an episode image alongside its audio file using the same
+// base filename, for example episode-42.mp3 and episode-42.jpg.
+func DownloadImage(link string, audioPath string) (string, error) {
 	if link == "" {
 		return "", errors.New("Download path empty")
+	}
+	if audioPath == "" {
+		return "", errors.New("Audio path empty")
 	}
 	client := httpClient()
 	req, err := getRequest(link)
 	if err != nil {
-		Logger.Errorw("Error creating request: "+link, err)
+		Logger.Errorw("Error creating request", "url", link, "error", err)
 		return "", err
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		Logger.Errorw("Error getting response: "+link, err)
+		Logger.Errorw("Error getting response", "url", link, "error", err)
 		return "", err
 	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		resp.Body.Close()
+		return "", fmt.Errorf("image request returned HTTP %s", resp.Status)
+	}
 
-	fileName := getFileName(link, episodeId, ".jpg")
-	folder := createDataFolderIfNotExists(podcastName)
-	imageFolder := createFolder("images", folder)
-	finalPath := path.Join(imageFolder, fileName)
+	finalPath := episodeImagePath(audioPath, link, resp.Header.Get("Content-Type"))
 
 	if _, err := os.Stat(finalPath); !os.IsNotExist(err) {
 		changeOwnership(finalPath)
@@ -175,20 +194,97 @@ func DownloadImage(link string, episodeId string, podcastName string) (string, e
 
 	file, err := os.Create(finalPath)
 	if err != nil {
-		Logger.Errorw("Error creating file"+link, err)
+		Logger.Errorw("Error creating file", "path", finalPath, "error", err)
 		return "", err
 	}
 	defer resp.Body.Close()
-	_, erra := io.Copy(file, resp.Body)
-	//fmt.Println(size)
-	defer file.Close()
-	if erra != nil {
-		Logger.Errorw("Error saving file"+link, err)
-		return "", erra
+	_, copyErr := io.Copy(file, resp.Body)
+	closeErr := file.Close()
+	if copyErr != nil {
+		_ = os.Remove(finalPath)
+		Logger.Errorw("Error saving file", "path", finalPath, "error", copyErr)
+		return "", copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(finalPath)
+		Logger.Errorw("Error closing file", "path", finalPath, "error", closeErr)
+		return "", closeErr
 	}
 	changeOwnership(finalPath)
 	return finalPath, nil
 
+}
+
+// DownloadImageTemporary downloads an episode image for ID3 embedding without
+// leaving a sidecar image beside the audio file. The caller owns the returned
+// temporary file and must remove it after writing the ID3 tag.
+func DownloadImageTemporary(link string, audioPath string) (string, error) {
+	if link == "" {
+		return "", errors.New("Download path empty")
+	}
+	if audioPath == "" {
+		return "", errors.New("Audio path empty")
+	}
+
+	req, err := getRequest(link)
+	if err != nil {
+		Logger.Errorw("Error creating image request", "url", link, "error", err)
+		return "", err
+	}
+	resp, err := httpClient().Do(req)
+	if err != nil {
+		Logger.Errorw("Error getting image response", "url", link, "error", err)
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("image request returned HTTP %s", resp.Status)
+	}
+
+	temporary, err := ioutil.TempFile(filepath.Dir(audioPath), ".podgrab-cover-*"+episodeImageExtension(link, resp.Header.Get("Content-Type")))
+	if err != nil {
+		return "", err
+	}
+	temporaryPath := temporary.Name()
+	_, copyErr := io.Copy(temporary, resp.Body)
+	closeErr := temporary.Close()
+	if copyErr != nil {
+		_ = os.Remove(temporaryPath)
+		return "", copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(temporaryPath)
+		return "", closeErr
+	}
+	return temporaryPath, nil
+}
+
+func episodeImagePath(audioPath string, imageURL string, contentType string) string {
+	return strings.TrimSuffix(audioPath, filepath.Ext(audioPath)) + episodeImageExtension(imageURL, contentType)
+}
+
+func episodeImageExtension(imageURL string, contentType string) string {
+	extension := ".jpg"
+	if parsed, err := url.Parse(imageURL); err == nil {
+		if candidate := strings.ToLower(filepath.Ext(parsed.Path)); isImageExtension(candidate) {
+			extension = candidate
+		}
+	}
+	if extension == ".jpg" {
+		if extensions, _ := mime.ExtensionsByType(strings.Split(contentType, ";")[0]); len(extensions) > 0 && isImageExtension(extensions[0]) {
+			extension = extensions[0]
+		}
+	}
+	return extension
+}
+
+func isImageExtension(extension string) bool {
+	switch extension {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+		return true
+	default:
+		return false
+	}
 }
 func changeOwnership(path string) {
 	uid, err1 := strconv.Atoi(os.Getenv("PUID"))

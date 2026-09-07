@@ -628,7 +628,7 @@ func UpdateSetting(c *gin.Context) {
 
 		err = service.UpdateSettings(model.DownloadOnAdd, model.InitialDownloadCount,
 			model.AutoDownload, model.AppendDateToFileName, model.AppendEpisodeNumberToFileName,
-			model.DarkMode, model.DownloadEpisodeImages, model.GenerateNFOFile, model.DontDownloadDeletedFromDisk, model.BaseUrl,
+			model.DarkMode, model.DownloadEpisodeImages, model.GenerateNFOFile, model.CreateM3UPlaylists, model.DontDownloadDeletedFromDisk, model.BaseUrl,
 			model.MaxDownloadConcurrency, model.UserAgent, model.EditID3Tags, model.UpdateNavidrome,
 			model.NavidromeHost, model.NavidromeUsername, model.NavidromePassword,
 			model.NavidromeWaitSeconds, model.NavidromePollSeconds,

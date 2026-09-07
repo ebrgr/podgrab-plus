@@ -2,8 +2,8 @@
   "podcasts": {
     "nome_livre_para_o_podcast": {
       "podgrab_id": "UUID_DO_PODCAST_NO_PODGRAB",
-      "album_id": "ID_DO_ALBUM_NO_NAVIDROME",
-      "playlist_id": "ID_DA_PLAYLIST_NO_NAVIDROME",
+      "album_name": "Nome do Podcast",
+      "playlist_name": "Últimos episódios - Nome do Podcast",
       "metadata_attributes": ["title", "artist", "album", "track_num", "genre", "date"],
       "filtered_prefixes": ["Trailer", "Bônus"],
       "episode_prefix": {

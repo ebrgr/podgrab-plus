@@ -144,11 +144,13 @@ Although personally I feel that using the docker container is the best way of us
 
 ### ID3 and Navidrome post-download integration
 
-Copy `post-download.example.json` to `CONFIG/post-download.json` and configure
-the Podgrab podcast UUID, Navidrome album ID and playlist ID. The older
-`CONFIG/cousin-iddd.config.json` filename is also accepted. After an MP3 is
-downloaded, Podgrab writes the selected ID3 fields before requesting a
-Navidrome scan and rebuilding the playlist.
+The integration can create `CONFIG/post-download.json` automatically. After an
+MP3 is downloaded, Podgrab writes its ID3 fields, requests a Navidrome scan,
+finds the album by podcast name and author, and finds or creates a playlist
+named `Últimos episódios - <podcast>`. The discovered album and playlist IDs
+are persisted in the JSON file. Copy `post-download.example.json` only when you
+need custom names, filters, track-number parsing or playlist size. The older
+`CONFIG/cousin-iddd.config.json` filename is also accepted.
 
 | Name | Description | Default |
 | --- | --- | --- |
