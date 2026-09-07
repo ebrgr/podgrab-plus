@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akhilrex/podgrab/db"
-	"github.com/akhilrex/podgrab/internal/sanitize"
+	"github.com/ebrgr/podgrab-plus/db"
+	"github.com/ebrgr/podgrab-plus/internal/sanitize"
 	stringy "github.com/gobeam/stringy"
 )
 

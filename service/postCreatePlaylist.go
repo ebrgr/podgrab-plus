@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/akhilrex/podgrab/db"
+	"github.com/ebrgr/podgrab-plus/db"
 )
 
 var podcastPlaylistMu sync.Mutex

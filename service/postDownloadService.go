@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/akhilrex/podgrab/db"
+	"github.com/ebrgr/podgrab-plus/db"
 	"github.com/bogem/id3v2/v2"
 )
 

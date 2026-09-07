@@ -50,7 +50,7 @@ jobs:
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache
           tags: |
-            akhilrex/podgrab:latest
-            akhilrex/podgrab:1.0.0
-            ghcr.io/akhilrex/podgrab:latest
-            ghcr.io/akhilrex/podgrab:1.0.0
+            ebrgr/podgrab-plus:latest
+            ebrgr/podgrab-plus:1.0.0
+            ghcr.io/ebrgr/podgrab-plus:latest
+            ghcr.io/ebrgr/podgrab-plus:1.0.0

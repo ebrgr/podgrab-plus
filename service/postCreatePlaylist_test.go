@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/akhilrex/podgrab/db"
+	"github.com/ebrgr/podgrab-plus/db"
 )
 
 func TestWritePodcastM3U(t *testing.T) {

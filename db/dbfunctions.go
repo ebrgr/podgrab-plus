@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akhilrex/podgrab/model"
+	"github.com/ebrgr/podgrab-plus/model"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

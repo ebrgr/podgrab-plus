@@ -9,7 +9,7 @@
 <!-- PROJECT LOGO -->
 <br />
 <p align="center">
-  <!-- <a href="https://github.com/akhilrex/podgrab">
+  <!-- <a href="https://github.com/ebrgr/podgrab-plus">
     <img src="images/logo.png" alt="Logo" width="80" height="80">
   </a> -->
 
@@ -19,14 +19,14 @@
   <p align="center">
     A self-hosted podcast manager to download episodes as soon as they become live
     <br />
-    <a href="https://github.com/akhilrex/podgrab"><strong>Explore the docs »</strong></a>
+    <a href="https://github.com/ebrgr/podgrab-plus"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <!-- <a href="https://github.com/akhilrex/podgrab">View Demo</a>
+    <!-- <a href="https://github.com/ebrgr/podgrab-plus">View Demo</a>
     · -->
-    <a href="https://github.com/akhilrex/podgrab/issues">Report Bug</a>
+    <a href="https://github.com/ebrgr/podgrab-plus/issues">Report Bug</a>
     ·
-    <a href="https://github.com/akhilrex/podgrab/issues">Request Feature</a>
+    <a href="https://github.com/ebrgr/podgrab-plus/issues">Request Feature</a>
         ·
     <a href="Screenshots.md">Screenshots</a>
   </p>
@@ -96,24 +96,24 @@ The easiest way to run Podgrab is to run it as a docker container.
 Simple setup without mounted volumes (for testing and evaluation)
 
 ```sh
-  docker run -d -p 8080:8080 --name=podgrab akhilrex/podgrab
+  docker run -d -p 8080:8080 --name=podgrab ebrgr/podgrab-plus
 ```
 
 Binding local volumes to the container
 
 ```sh
-   docker run -d -p 8080:8080 --name=podgrab -v "/host/path/to/assets:/assets" -v "/host/path/to/config:/config"  akhilrex/podgrab
+   docker run -d -p 8080:8080 --name=podgrab -v "/host/path/to/assets:/assets" -v "/host/path/to/config:/config"  ebrgr/podgrab-plus
 ```
 
 ### Using Docker-Compose
 
-Modify the docker compose file provided [here](https://github.com/akhilrex/podgrab/blob/master/docker-compose.yml) to update the volume and port binding and run the following command
+Modify the docker compose file provided [here](https://github.com/ebrgr/podgrab-plus/blob/master/docker-compose.yml) to update the volume and port binding and run the following command
 
 ```yaml
 version: "2.1"
 services:
   podgrab:
-    image: akhilrex/podgrab
+    image: ebrgr/podgrab-plus
     container_name: podgrab
     environment:
       - CHECK_FREQUENCY=240
@@ -199,23 +199,23 @@ Distributed under the GPL-3.0 License. See `LICENSE` for more information.
 
 Akhil Gupta - [@akhilrex](https://twitter.com/akhilrex)
 
-Project Link: [https://github.com/akhilrex/podgrab](https://github.com/akhilrex/podgrab)
+Project Link: [https://github.com/ebrgr/podgrab-plus](https://github.com/ebrgr/podgrab-plus)
 
 <a href="https://www.buymeacoffee.com/akhilrex" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
 
-[contributors-shield]: https://img.shields.io/github/contributors/akhilrex/podgrab.svg?style=flat-square
-[contributors-url]: https://github.com/akhilrex/podgrab/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/akhilrex/podgrab.svg?style=flat-square
-[forks-url]: https://github.com/akhilrex/podgrab/network/members
-[stars-shield]: https://img.shields.io/github/stars/akhilrex/podgrab.svg?style=flat-square
-[stars-url]: https://github.com/akhilrex/podgrab/stargazers
-[issues-shield]: https://img.shields.io/github/issues/akhilrex/podgrab.svg?style=flat-square
-[issues-url]: https://github.com/akhilrex/podgrab/issues
-[license-shield]: https://img.shields.io/github/license/akhilrex/podgrab.svg?style=flat-square
-[license-url]: https://github.com/akhilrex/podgrab/blob/master/LICENSE.txt
+[contributors-shield]: https://img.shields.io/github/contributors/ebrgr/podgrab-plus.svg?style=flat-square
+[contributors-url]: https://github.com/ebrgr/podgrab-plus/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/ebrgr/podgrab-plus.svg?style=flat-square
+[forks-url]: https://github.com/ebrgr/podgrab-plus/network/members
+[stars-shield]: https://img.shields.io/github/stars/ebrgr/podgrab-plus.svg?style=flat-square
+[stars-url]: https://github.com/ebrgr/podgrab-plus/stargazers
+[issues-shield]: https://img.shields.io/github/issues/ebrgr/podgrab-plus.svg?style=flat-square
+[issues-url]: https://github.com/ebrgr/podgrab-plus/issues
+[license-shield]: https://img.shields.io/github/license/ebrgr/podgrab-plus.svg?style=flat-square
+[license-url]: https://github.com/ebrgr/podgrab-plus/blob/master/LICENSE.txt
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=flat-square&logo=linkedin&colorB=555
 [linkedin-url]: https://linkedin.com/in/akhilrex
 [product-screenshot]: images/screenshot.jpg

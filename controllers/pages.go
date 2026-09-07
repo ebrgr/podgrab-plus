@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akhilrex/podgrab/db"
-	"github.com/akhilrex/podgrab/model"
-	"github.com/akhilrex/podgrab/service"
+	"github.com/ebrgr/podgrab-plus/db"
+	"github.com/ebrgr/podgrab-plus/model"
+	"github.com/ebrgr/podgrab-plus/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -60,7 +60,7 @@ func HomePage(c *gin.Context) {
 	//var podcasts []db.Podcast
 	podcasts := service.GetAllPodcasts("")
 	setting := c.MustGet("setting").(*db.Setting)
-	c.HTML(http.StatusOK, "index.html", gin.H{"title": "Podgrab", "podcasts": podcasts, "setting": setting})
+	c.HTML(http.StatusOK, "index.html", gin.H{"title": "Podgrab Plus [NAViDROME Edition]", "podcasts": podcasts, "setting": setting})
 }
 func PodcastPage(c *gin.Context) {
 	var searchByIdQuery SearchByIdQuery

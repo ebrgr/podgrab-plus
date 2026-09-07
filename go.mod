@@ -1,4 +1,4 @@
-module github.com/akhilrex/podgrab
+module github.com/ebrgr/podgrab-plus
 
 go 1.25.0
 

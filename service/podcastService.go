@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/TheHippo/podcastindex"
-	"github.com/akhilrex/podgrab/db"
-	"github.com/akhilrex/podgrab/model"
+	"github.com/ebrgr/podgrab-plus/db"
+	"github.com/ebrgr/podgrab-plus/model"
 	"github.com/antchfx/xmlquery"
 	strip "github.com/grokify/html-strip-tags-go"
 	"go.uber.org/zap"
