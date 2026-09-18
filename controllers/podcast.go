@@ -707,3 +707,18 @@ func UpdateSetting(c *gin.Context) {
 	}
 
 }
+
+// TestNavidromeConnection validates the connection details without persisting
+// them or changing albums, playlists, or the Navidrome library.
+func TestNavidromeConnection(c *gin.Context) {
+	var model NavidromeConnectionTestModel
+	if err := c.ShouldBind(&model); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid Navidrome connection details"})
+		return
+	}
+	if err := service.TestNavidromeConnection(model.NavidromeHost, model.NavidromeUsername, model.NavidromePassword); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Navidrome connection successful"})
+}

@@ -131,50 +131,53 @@
         </label>
 
         <div class="service-settings">
-            <h4>Processamento pós-download</h4>
-            <p class="service-help">Estas ações são executadas depois que o arquivo MP3 termina de ser baixado.</p>
+            <h4>Post-download processing</h4>
+            <p class="service-help">These actions run after the MP3 file has finished downloading.</p>
 
             <label for="editID3Tags">
                 <input type="checkbox" name="editID3Tags" v-model="editID3Tags">
-                <span class="label-body">Editar as tags ID3 do episódio</span>
+                <span class="label-body">Edit episode ID3 tags</span>
             </label>
             <p class="service-help" v-if="editID3Tags">
-                Adiciona título, autor, podcast, gênero, data e a capa do episódio ao MP3. A capa é incorporada mesmo sem salvar um JPG ao lado do arquivo.
+                Adds the title, artist, podcast, genre, date, and episode cover to the MP3. The cover is embedded even when no sidecar JPG is saved.
             </p>
 
             <label for="updateNavidrome">
                 <input type="checkbox" name="updateNavidrome" v-model="updateNavidrome">
-                <span class="label-body">Atualizar o Navidrome e suas playlists</span>
+                <span class="label-body">Update Navidrome and its playlists</span>
             </label>
 
             <div v-if="updateNavidrome">
                 <label for="navidromeHost">
-                    Endereço do Navidrome
+                    Navidrome URL
                     <input type="text" class="u-full-width" name="navidromeHost" v-model.trim="navidromeHost" placeholder="http://navidrome:4533">
                 </label>
                 <label for="navidromeUsername">
-                    Usuário
+                    Username
                     <input type="text" class="u-full-width" name="navidromeUsername" v-model.trim="navidromeUsername" autocomplete="username">
                 </label>
                 <label for="navidromePassword">
-                    Senha
-                    <input type="password" class="u-full-width" name="navidromePassword" v-model="navidromePassword" autocomplete="new-password" :placeholder="navidromePasswordConfigured ? 'Senha já configurada; deixe vazio para manter' : 'Senha do Navidrome'">
+                    Password
+                    <input type="password" class="u-full-width" name="navidromePassword" v-model="navidromePassword" autocomplete="new-password" :placeholder="navidromePasswordConfigured ? 'Password already configured; leave blank to keep it' : 'Navidrome password'">
                 </label>
                 <div class="row">
                     <div class="columns six">
                         <label for="navidromeWaitSeconds">
-                            Tempo máximo de espera (segundos)
+                            Maximum wait time (seconds)
                             <input type="number" class="u-full-width" name="navidromeWaitSeconds" v-model.number="navidromeWaitSeconds" min="1">
                         </label>
                     </div>
                     <div class="columns six">
                         <label for="navidromePollSeconds">
-                            Intervalo de consulta (segundos)
+                            Polling interval (seconds)
                             <input type="number" class="u-full-width" name="navidromePollSeconds" v-model.number="navidromePollSeconds" min="1">
                         </label>
                     </div>
                 </div>
-                <p class="service-help">No primeiro download, o Podgrab procura o álbum e cria a playlist automaticamente. Os IDs descobertos são guardados no arquivo de integração.</p>
+                <button type="button" class="button" @click="testNavidromeConnection" :disabled="testingNavidrome">
+                    ${ testingNavidrome ? 'Testing connection…' : 'Test Navidrome connection' }
+                </button>
+                <p class="service-help">On the first download, Podgrab looks up the album and creates the playlist automatically. The discovered IDs are saved in the integration file.</p>
             </div>
         </div>
       
@@ -294,6 +297,38 @@ var app = new Vue({
 
         })
           return false;
+      },
+      testNavidromeConnection:function(){
+        var self=this;
+        self.testingNavidrome=true;
+        axios.post("/settings/navidrome/test",{
+            navidromeHost:self.navidromeHost,
+            navidromeUsername:self.navidromeUsername,
+            navidromePassword:self.navidromePassword,
+        })
+        .then(function(response){
+            Vue.toasted.show(response.data.message, {
+                theme: "bubble",
+                type: "success",
+                position: "top-right",
+                duration : 5000
+            });
+        })
+        .catch(function(error){
+            var message = "Could not connect to Navidrome.";
+            if (error.response && error.response.data && error.response.data.message) {
+                message = error.response.data.message;
+            }
+            Vue.toasted.show(message, {
+                theme: "bubble",
+                type: "error",
+                position: "top-right",
+                duration : 7000
+            });
+        })
+        .then(function(){
+            self.testingNavidrome=false;
+        });
       }
   },
   data: {
@@ -319,6 +354,7 @@ var app = new Vue({
     navidromePasswordConfigured:{{ .navidromePasswordConfigured }},
     navidromeWaitSeconds:{{ .setting.NavidromeWaitSeconds }},
     navidromePollSeconds:{{ .setting.NavidromePollSeconds }},
+    testingNavidrome:false,
   },
 
 })

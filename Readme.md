@@ -13,8 +13,8 @@
     <img src="images/logo.png" alt="Logo" width="80" height="80">
   </a> -->
 
-  <h1 align="center" style="margin-bottom:0px">Podgrab</h1>
-  <p align="center">Current Version -2022.07.07</p>
+  <h1 align="center" style="margin-bottom:0px">Podgrab-Plus [NAViDROME Ed.]</h1>
+  <p align="center">Current Version - q3/2026</p>
 
   <p align="center">
     A self-hosted podcast manager to download episodes as soon as they become live
@@ -36,11 +36,19 @@
 
 ## Table of Contents
 
-- [About the Project](#about-the-project)
+- [Table of Contents](#table-of-contents)
+- [About The Project](#about-the-project)
   - [Motivation](#motivation)
+  - [Project origin and Cousin-IDDD](#project-origin-and-cousin-iddd)
   - [Built With](#built-with)
   - [Features](#features)
 - [Installation](#installation)
+  - [Using Docker](#using-docker)
+  - [Using Docker-Compose](#using-docker-compose)
+  - [Build from Source / Ubuntu Installation](#build-from-source--ubuntu-installation)
+  - [Environment Variables](#environment-variables)
+  - [ID3 and Navidrome post-download integration](#id3-and-navidrome-post-download-integration)
+  - [Setup](#setup)
 - [License](#license)
 - [Roadmap](#roadmap)
 - [Contact](#contact)
@@ -53,16 +61,27 @@ Podgrab is a is a self-hosted podcast manager which automatically downloads late
 
 It works best if you already know which podcasts you want to monitor. However there is a podcast search system powered by iTunes built into Podgrab
 
-*Developers Note: This project is under active development which means I release new updates very frequently. It is recommended that you use something like [watchtower](https://github.com/containrrr/watchtower) which will automatically update your containers whenever I release a new version or periodically rebuild the container with the latest image manually.*
-
-__Also check out my other self-hosted, open-source solution - [Hammond](https://github.com/akhilrex/hammond) - Vehicle and Expense management system.__
 
 ### Motivation
 
 Podgrab started as a tool that I initially built to solve a specific problem I had. During the COVID pandemic times I started going for a run. I do not prefer taking my phone along so I would add podcast episodes to my smart watch which could be connected with my bluetooth earphones. Most podcasting apps do not expose the mp3 files directly which is why I decided to build this quick tool for myself. Once it reached a stage where my requirements were fulfilled I decided to make it a little pretty and share it with everyone else.
 
-![Product Name Screen Shot][product-screenshot]
-[More Screenshots](Screenshots.md)
+### Project origin and Cousin-IDDD
+
+Podgrab-Plus is a branch of Podgrab focused on preserving downloaded podcast
+files as a well-organized local audio library and integrating that library with
+Navidrome. Its post-download workflow was initially inspired by
+[Cousin-IDDD](https://github.com/allanjamesvestal/Cousin-IDDD), a separate
+project designed to process downloaded podcast audio: enrich MP3 files with
+ID3 metadata and artwork, then make the episodes available to a Subsonic-
+compatible music server.
+
+That idea was brought into the Podgrab interface and service flow so it runs
+after an episode download. This branch can write missing ID3 metadata, embed
+cover art, optionally save a sidecar image, create an `.m3u` sidecar playlist,
+and update Navidrome through its Subsonic API. The integration work in this
+branch was vibe-coded with ChatGPT and then reviewed and adapted for Podgrab.
+
 
 ### Built With
 
@@ -70,6 +89,7 @@ Podgrab started as a tool that I initially built to solve a specific problem I h
 - [Go-Gin](https://github.com/gin-gonic/gin)
 - [GORM](https://github.com/go-gorm/gorm)
 - [SQLite](https://www.sqlite.org/index.html)
+- [Chat-GPT]
 
 ### Features
 - Download/Archive complete podcast
@@ -186,9 +206,11 @@ Distributed under the GPL-3.0 License. See `LICENSE` for more information.
 - [x] OPML import
 - [x] OPML export
 - [x] In built podcast player
-- [ ] Set ID3 tags if not set 
+- [x] Set ID3 tags if not set
+- [x] save .m3u sidecar playlist
+- [x] Initial [Cousin-IDDD](https://github.com/allanjamesvestal/Cousin-IDDD) integration in the project interface through the Subsonic API
+- [ ] initial multi-language app
 - [ ] Filtering and Sorting options
-- [ ] Native installer for Windows/Linux/MacOS
 
 
 
@@ -197,11 +219,7 @@ Distributed under the GPL-3.0 License. See `LICENSE` for more information.
 
 ## Contact
 
-Akhil Gupta - [@akhilrex](https://twitter.com/akhilrex)
-
 Project Link: [https://github.com/ebrgr/podgrab-plus](https://github.com/ebrgr/podgrab-plus)
-
-<a href="https://www.buymeacoffee.com/akhilrex" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
@@ -217,5 +235,3 @@ Project Link: [https://github.com/ebrgr/podgrab-plus](https://github.com/ebrgr/p
 [license-shield]: https://img.shields.io/github/license/ebrgr/podgrab-plus.svg?style=flat-square
 [license-url]: https://github.com/ebrgr/podgrab-plus/blob/master/LICENSE.txt
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=flat-square&logo=linkedin&colorB=555
-[linkedin-url]: https://linkedin.com/in/akhilrex
-[product-screenshot]: images/screenshot.jpg

@@ -18,8 +18,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ebrgr/podgrab-plus/db"
 	"github.com/bogem/id3v2/v2"
+	"github.com/ebrgr/podgrab-plus/db"
 )
 
 const navidromeClientName = "podgrab"
@@ -427,6 +427,29 @@ func newNavidromeClient(setting *db.Setting) (*navidromeClient, error) {
 		username:   username,
 		password:   password,
 	}, nil
+}
+
+// TestNavidromeConnection validates host and credentials through the Subsonic
+// ping endpoint. Blank fields retain their saved or environment-provided value;
+// supplied values are never persisted by this operation.
+func TestNavidromeConnection(host string, username string, password string) error {
+	configured := db.GetOrCreateSetting()
+	candidate := *configured
+	if strings.TrimSpace(host) != "" {
+		candidate.NavidromeHost = strings.TrimRight(strings.TrimSpace(host), "/")
+	}
+	if strings.TrimSpace(username) != "" {
+		candidate.NavidromeUsername = strings.TrimSpace(username)
+	}
+	if password != "" {
+		candidate.NavidromePassword = password
+	}
+
+	client, err := newNavidromeClient(&candidate)
+	if err != nil {
+		return err
+	}
+	return client.call("ping", nil, &subsonicEnvelope{})
 }
 
 func (client *navidromeClient) getAlbum(id string) (subsonicAlbum, error) {

@@ -43,6 +43,12 @@ type SettingModel struct {
 	NavidromePollSeconds          int    `form:"navidromePollSeconds" json:"navidromePollSeconds" query:"navidromePollSeconds"`
 }
 
+type NavidromeConnectionTestModel struct {
+	NavidromeHost     string `form:"navidromeHost" json:"navidromeHost" query:"navidromeHost"`
+	NavidromeUsername string `form:"navidromeUsername" json:"navidromeUsername" query:"navidromeUsername"`
+	NavidromePassword string `form:"navidromePassword" json:"navidromePassword" query:"navidromePassword"`
+}
+
 var searchOptions = map[string]string{
 	"itunes":       "iTunes",
 	"podcastindex": "PodcastIndex",

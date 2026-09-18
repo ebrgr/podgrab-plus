@@ -192,6 +192,7 @@ func main() {
 	router.GET("/allTags", controllers.AllTagsPage)
 	router.GET("/settings", controllers.SettingsPage)
 	router.POST("/settings", controllers.UpdateSetting)
+	router.POST("/settings/navidrome/test", controllers.TestNavidromeConnection)
 	router.GET("/backups", controllers.BackupsPage)
 	router.POST("/opml", controllers.UploadOpml)
 	router.GET("/opml", controllers.GetOmpl)
