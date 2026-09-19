@@ -304,6 +304,18 @@ func metadataForEpisode(item *db.PodcastItem, config PostDownloadPodcastConfig) 
 
 func writeEpisodeID3(mediaPath string, attrs []string, metadata episodeMetadata, imagePath string) error {
 	tag, err := id3v2.Open(mediaPath, id3v2.Options{Parse: true})
+	if errors.Is(err, id3v2.ErrUnsupportedVersion) {
+		// Some podcast publishers still distribute MP3s with ID3v2.2 tags.
+		// The ID3 library supports v2.3 and v2.4 only. Remove the complete
+		// legacy tag while preserving the audio data, then create a new v2.4 tag.
+		if tag != nil {
+			_ = tag.Close()
+		}
+		if err := removeUnsupportedID3Tag(mediaPath); err != nil {
+			return fmt.Errorf("replace unsupported ID3 tag: %w", err)
+		}
+		tag, err = id3v2.Open(mediaPath, id3v2.Options{Parse: true})
+	}
 	if err != nil {
 		return err
 	}
@@ -342,6 +354,77 @@ func writeEpisodeID3(mediaPath string, attrs []string, metadata episodeMetadata,
 		}
 	}
 	return tag.Save()
+}
+
+// removeUnsupportedID3Tag removes an ID3v2.0, v2.1, or v2.2 header and its
+// payload. It writes the audio portion to a temporary file and atomically
+// replaces the original only after the copy completes successfully.
+func removeUnsupportedID3Tag(mediaPath string) error {
+	source, err := os.Open(mediaPath)
+	if err != nil {
+		return err
+	}
+
+	info, err := source.Stat()
+	if err != nil {
+		source.Close()
+		return err
+	}
+	header := make([]byte, 10)
+	if _, err := io.ReadFull(source, header); err != nil {
+		source.Close()
+		return err
+	}
+	if string(header[:3]) != "ID3" || header[3] > 2 {
+		source.Close()
+		return errors.New("file does not contain an unsupported ID3v2 tag")
+	}
+
+	// ID3v2 stores its payload size as four sync-safe bytes. The header itself
+	// is ten bytes and is not included in that size.
+	var tagSize int64
+	for _, value := range header[6:10] {
+		if value&0x80 != 0 {
+			source.Close()
+			return errors.New("unsupported ID3 tag has an invalid sync-safe size")
+		}
+		tagSize = (tagSize << 7) | int64(value)
+	}
+	audioOffset := int64(len(header)) + tagSize
+	if audioOffset > info.Size() {
+		source.Close()
+		return errors.New("unsupported ID3 tag extends beyond the end of the file")
+	}
+	if _, err := source.Seek(audioOffset, io.SeekStart); err != nil {
+		source.Close()
+		return err
+	}
+
+	temporary, err := os.CreateTemp(filepath.Dir(mediaPath), ".podgrab-id3-*")
+	if err != nil {
+		source.Close()
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(info.Mode()); err != nil {
+		temporary.Close()
+		source.Close()
+		return err
+	}
+	if _, err := io.Copy(temporary, source); err != nil {
+		temporary.Close()
+		source.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		source.Close()
+		return err
+	}
+	if err := source.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, mediaPath)
 }
 
 func writeID3Cover(tag *id3v2.Tag, _ id3v2.Encoding, imagePath string) error {

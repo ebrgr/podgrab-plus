@@ -120,6 +120,38 @@ func TestWriteEpisodeID3ReplacesExistingCover(t *testing.T) {
 	}
 }
 
+func TestWriteEpisodeID3ReplacesUnsupportedV22Tag(t *testing.T) {
+	mediaPath := filepath.Join(t.TempDir(), "episode.mp3")
+	audio := []byte("audio payload must remain intact")
+	// ID3v2.2 header: identifier, major version 2, revision/flags, and a
+	// zero-length sync-safe tag payload.
+	legacyTag := []byte{'I', 'D', '3', 2, 0, 0, 0, 0, 0, 0}
+	if err := ioutil.WriteFile(mediaPath, append(legacyTag, audio...), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	metadata := episodeMetadata{Title: "Recovered episode", Artist: "Author", Album: "Podcast", Genre: "Podcast"}
+	if err := writeEpisodeID3(mediaPath, defaultID3MetadataAttrs, metadata, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	tag, err := id3v2.Open(mediaPath, id3v2.Options{Parse: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tag.Close()
+	if tag.Version() != 4 || tag.Title() != metadata.Title {
+		t.Fatalf("expected a readable ID3v2.4 tag with title %q, got version=%d title=%q", metadata.Title, tag.Version(), tag.Title())
+	}
+	contents, err := ioutil.ReadFile(mediaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasSuffix(contents, audio) {
+		t.Fatal("audio payload was not preserved while replacing the legacy tag")
+	}
+}
+
 func TestEmptyMetadataAttributesUseDefaults(t *testing.T) {
 	attrs := effectiveMetadataAttrs(nil)
 	if len(attrs) != len(defaultID3MetadataAttrs) {
