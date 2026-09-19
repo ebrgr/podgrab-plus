@@ -152,6 +152,33 @@ func TestWriteEpisodeID3ReplacesUnsupportedV22Tag(t *testing.T) {
 	}
 }
 
+func TestID3MetadataMatches(t *testing.T) {
+	mediaPath := filepath.Join(t.TempDir(), "episode.mp3")
+	if err := ioutil.WriteFile(mediaPath, []byte("audio payload"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	metadata := episodeMetadata{
+		Title:  "Current episode",
+		Artist: "Author",
+		Album:  "Podcast",
+		Genre:  "Podcast",
+		Date:   "2026-09-19T12:00:00Z",
+	}
+	if err := writeEpisodeID3(mediaPath, defaultID3MetadataAttrs, metadata, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	matches, err := id3MetadataMatches(mediaPath, defaultID3MetadataAttrs, metadata, "")
+	if err != nil || !matches {
+		t.Fatalf("expected current metadata to match, got matches=%v err=%v", matches, err)
+	}
+	metadata.Title = "Corrected episode title"
+	matches, err = id3MetadataMatches(mediaPath, defaultID3MetadataAttrs, metadata, "")
+	if err != nil || matches {
+		t.Fatalf("expected outdated metadata to require an update, got matches=%v err=%v", matches, err)
+	}
+}
+
 func TestEmptyMetadataAttributesUseDefaults(t *testing.T) {
 	attrs := effectiveMetadataAttrs(nil)
 	if len(attrs) != len(defaultID3MetadataAttrs) {

@@ -156,6 +156,7 @@ func main() {
 	router.DELETE("/podcasts/:id", controllers.DeletePodcastById)
 	router.GET("/podcasts/:id/items", controllers.GetPodcastItemsByPodcastId)
 	router.GET("/podcasts/:id/download", controllers.DownloadAllEpisodesByPodcastId)
+	router.POST("/podcasts/:id/id3/check", controllers.CheckDownloadedEpisodeID3ByPodcastId)
 	router.DELETE("/podcasts/:id/items", controllers.DeletePodcastEpisodesById)
 	router.DELETE("/podcasts/:id/podcast", controllers.DeleteOnlyPodcastById)
 	router.GET("/podcasts/:id/pause", controllers.PausePodcastById)

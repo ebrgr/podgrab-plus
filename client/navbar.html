@@ -160,6 +160,14 @@ onclick="playPodcast({{ .podcastId }})"
 </button>
 
 <button
+class="button"
+title="Check all ID3 tags of downloaded episodes"
+onclick="checkDownloadedEpisodeID3({{ .podcastId }})"
+>
+<i class="fas fa-tags"></i>
+</button>
+
+<button
 class="button  button-enqueue"
 title="Add all episodes to existing player playlist"
 onclick="enquePodcast({{ .podcastId }})"

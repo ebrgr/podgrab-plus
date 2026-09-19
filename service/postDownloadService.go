@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,9 @@ import (
 const navidromeClientName = "podgrab"
 
 var navidromeSyncMu sync.Mutex
+
+var id3CheckMu sync.Mutex
+var id3ChecksInProgress = make(map[string]bool)
 
 var defaultID3MetadataAttrs = []string{"title", "artist", "album", "genre", "date"}
 
@@ -150,7 +154,7 @@ func NotifyNavidromeAfterDownload(item *db.PodcastItem) error {
 		showConfig.AlbumName = item.Podcast.Title
 	}
 	if showConfig.PlaylistName == "" {
-		showConfig.PlaylistName = "Últimos episódios - " + item.Podcast.Title
+		showConfig.PlaylistName = "Last episodes - " + item.Podcast.Title
 	}
 
 	client, err := newNavidromeClient(setting)
@@ -305,9 +309,9 @@ func metadataForEpisode(item *db.PodcastItem, config PostDownloadPodcastConfig) 
 func writeEpisodeID3(mediaPath string, attrs []string, metadata episodeMetadata, imagePath string) error {
 	tag, err := id3v2.Open(mediaPath, id3v2.Options{Parse: true})
 	if errors.Is(err, id3v2.ErrUnsupportedVersion) {
-		// Some podcast publishers still distribute MP3s with ID3v2.2 tags.
-		// The ID3 library supports v2.3 and v2.4 only. Remove the complete
-		// legacy tag while preserving the audio data, then create a new v2.4 tag.
+		// Some podcast publishers still distribute ID3v2.2 tags. The ID3
+		// library supports v2.3 and v2.4 only, so preserve the audio while
+		// replacing the legacy tag with a new supported tag.
 		if tag != nil {
 			_ = tag.Close()
 		}
@@ -357,8 +361,8 @@ func writeEpisodeID3(mediaPath string, attrs []string, metadata episodeMetadata,
 }
 
 // removeUnsupportedID3Tag removes an ID3v2.0, v2.1, or v2.2 header and its
-// payload. It writes the audio portion to a temporary file and atomically
-// replaces the original only after the copy completes successfully.
+// payload. The original file is replaced only after the audio payload has been
+// copied to a temporary file successfully.
 func removeUnsupportedID3Tag(mediaPath string) error {
 	source, err := os.Open(mediaPath)
 	if err != nil {
@@ -380,8 +384,6 @@ func removeUnsupportedID3Tag(mediaPath string) error {
 		return errors.New("file does not contain an unsupported ID3v2 tag")
 	}
 
-	// ID3v2 stores its payload size as four sync-safe bytes. The header itself
-	// is ten bytes and is not included in that size.
 	var tagSize int64
 	for _, value := range header[6:10] {
 		if value&0x80 != 0 {
@@ -425,6 +427,282 @@ func removeUnsupportedID3Tag(mediaPath string) error {
 		return err
 	}
 	return os.Rename(temporaryPath, mediaPath)
+}
+
+// StartDownloadedEpisodeID3Check starts one background ID3 repair job for a
+// podcast. It returns false when that podcast already has a job in progress.
+func StartDownloadedEpisodeID3Check(podcastID string) (bool, error) {
+	var podcast db.Podcast
+	if err := db.GetPodcastById(podcastID, &podcast); err != nil {
+		return false, err
+	}
+
+	id3CheckMu.Lock()
+	if id3ChecksInProgress[podcastID] {
+		id3CheckMu.Unlock()
+		return false, nil
+	}
+	id3ChecksInProgress[podcastID] = true
+	id3CheckMu.Unlock()
+
+	go func() {
+		defer func() {
+			id3CheckMu.Lock()
+			delete(id3ChecksInProgress, podcastID)
+			id3CheckMu.Unlock()
+		}()
+		if err := CheckDownloadedEpisodeID3(podcastID); err != nil {
+			Logger.Errorw("Downloaded episode ID3 check failed", "podcast", podcastID, "error", err)
+		}
+	}()
+	return true, nil
+}
+
+// CheckDownloadedEpisodeID3 verifies every downloaded episode of one podcast.
+// Missing or outdated metadata, artwork, and enabled image sidecars are
+// repaired. A podgrab-id3-check.log file is appended beside the audio files.
+// This explicit manual action works even if automatic ID3 editing is disabled.
+func CheckDownloadedEpisodeID3(podcastID string) error {
+	var episodes []db.PodcastItem
+	if err := db.GetAllPodcastItemsByPodcastId(podcastID, &episodes); err != nil {
+		return err
+	}
+	if len(episodes) == 0 {
+		return nil
+	}
+
+	config, configured, err := postDownloadPodcastConfig(podcastID)
+	if err != nil {
+		return err
+	}
+	if !configured {
+		config = defaultPostDownloadPodcastConfig(&episodes[0])
+	}
+	attrs := effectiveMetadataAttrs(config.MetadataAttrs)
+	setting := db.GetOrCreateSetting()
+	logs := make(map[string]*os.File)
+	defer func() {
+		for _, file := range logs {
+			_ = file.Close()
+		}
+	}()
+
+	var firstErr error
+	for index := range episodes {
+		item := &episodes[index]
+		if item.DownloadStatus != db.Downloaded || item.DownloadPath == "" {
+			continue
+		}
+
+		logFile, err := id3CheckLogForEpisode(logs, item.DownloadPath, item.Podcast.Title)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			Logger.Errorw("Could not write ID3 check log", "episode", item.ID, "error", err)
+			continue
+		}
+		if _, err := os.Stat(item.DownloadPath); err != nil {
+			if os.IsNotExist(err) {
+				id3CheckLogLine(logFile, "MISSING", item, "file is marked as downloaded but is not present on disk")
+			} else {
+				id3CheckLogLine(logFile, "ERROR", item, "could not access file: "+err.Error())
+				if firstErr == nil {
+					firstErr = err
+				}
+			}
+			continue
+		}
+
+		metadata, err := metadataForEpisode(item, config)
+		if err != nil {
+			id3CheckLogLine(logFile, "ERROR", item, "could not calculate expected metadata: "+err.Error())
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+
+		imagePath := ""
+		removeTemporaryImage := func() {}
+		if item.Image != "" {
+			imagePath, removeTemporaryImage, err = episodeImageForPostDownload(item, item.DownloadPath, false, true)
+			if err != nil {
+				id3CheckLogLine(logFile, "WARNING", item, "could not download episode image: "+err.Error())
+				imagePath = ""
+			}
+		}
+
+		matches, matchErr := id3MetadataMatches(item.DownloadPath, attrs, metadata, imagePath)
+		sidecarPath := ""
+		if imagePath != "" && setting.DownloadEpisodeImages {
+			sidecarPath = id3CheckSidecarPath(item.DownloadPath, imagePath)
+			if !filesHaveSameContents(sidecarPath, imagePath) {
+				matches = false
+			}
+		}
+		if matchErr != nil {
+			matches = false
+		}
+		if matches {
+			id3CheckLogLine(logFile, "UNCHANGED", item, "metadata and cover are current")
+			removeTemporaryImage()
+			continue
+		}
+
+		if err := writeEpisodeID3(item.DownloadPath, attrs, metadata, imagePath); err != nil {
+			id3CheckLogLine(logFile, "ERROR", item, "could not update ID3 metadata: "+err.Error())
+			if firstErr == nil {
+				firstErr = err
+			}
+			removeTemporaryImage()
+			continue
+		}
+		if sidecarPath != "" {
+			if err := copyID3CheckSidecar(imagePath, sidecarPath); err != nil {
+				id3CheckLogLine(logFile, "ERROR", item, "ID3 updated but could not save sidecar image: "+err.Error())
+				if firstErr == nil {
+					firstErr = err
+				}
+				removeTemporaryImage()
+				continue
+			}
+			item.LocalImage = sidecarPath
+			if err := db.UpdatePodcastItem(item); err != nil {
+				id3CheckLogLine(logFile, "ERROR", item, "ID3 updated but could not save sidecar path: "+err.Error())
+				if firstErr == nil {
+					firstErr = err
+				}
+				removeTemporaryImage()
+				continue
+			}
+		}
+		id3CheckLogLine(logFile, "UPDATED", item, "metadata and cover were refreshed")
+		removeTemporaryImage()
+	}
+	return firstErr
+}
+
+func id3MetadataMatches(mediaPath string, attrs []string, metadata episodeMetadata, imagePath string) (bool, error) {
+	tag, err := id3v2.Open(mediaPath, id3v2.Options{Parse: true})
+	if err != nil {
+		return false, err
+	}
+	defer tag.Close()
+	enabled := stringSet(attrs)
+	if enabled["title"] && tag.Title() != metadata.Title {
+		return false, nil
+	}
+	if enabled["artist"] && tag.Artist() != metadata.Artist {
+		return false, nil
+	}
+	if enabled["album"] && tag.Album() != metadata.Album {
+		return false, nil
+	}
+	if enabled["genre"] && tag.Genre() != metadata.Genre {
+		return false, nil
+	}
+	if enabled["track_num"] && metadata.TrackNumber != "" && tag.GetTextFrame(tag.CommonID("Track number/Position in set")).Text != metadata.TrackNumber {
+		return false, nil
+	}
+	if enabled["date"] && !id3DateMatches(tag, metadata.Date) {
+		return false, nil
+	}
+	if imagePath != "" && !id3CoverMatches(tag, imagePath) {
+		return false, nil
+	}
+	return true, nil
+}
+
+func id3DateMatches(tag *id3v2.Tag, value string) bool {
+	if tag.Version() != 3 {
+		return tag.GetTextFrame(tag.CommonID("Recording time")).Text == value
+	}
+	parsed, err := time.Parse("2006-01-02T15:04:05Z", value)
+	if err != nil {
+		return tag.GetTextFrame(tag.CommonID("Year")).Text == value
+	}
+	return tag.GetTextFrame(tag.CommonID("Year")).Text == parsed.Format("2006") &&
+		tag.GetTextFrame(tag.CommonID("Date")).Text == parsed.Format("0201") &&
+		tag.GetTextFrame(tag.CommonID("Time")).Text == parsed.Format("1504")
+}
+
+func id3CoverMatches(tag *id3v2.Tag, imagePath string) bool {
+	expected, err := ioutil.ReadFile(imagePath)
+	if err != nil || len(expected) == 0 {
+		return false
+	}
+	for _, frame := range tag.GetFrames(tag.CommonID("Attached picture")) {
+		picture, ok := frame.(id3v2.PictureFrame)
+		if ok && picture.PictureType == id3v2.PTFrontCover && bytes.Equal(picture.Picture, expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func id3CheckLogForEpisode(logs map[string]*os.File, audioPath string, podcastTitle string) (*os.File, error) {
+	folder := filepath.Dir(audioPath)
+	if file, exists := logs[folder]; exists {
+		return file, nil
+	}
+	logPath := filepath.Join(folder, "podgrab-id3-check.log")
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := fmt.Fprintf(file, "\n%s\tCHECK START\t%s\n", time.Now().Format(time.RFC3339), podcastTitle); err != nil {
+		file.Close()
+		return nil, err
+	}
+	changeOwnership(logPath)
+	logs[folder] = file
+	return file, nil
+}
+
+func id3CheckLogLine(file *os.File, status string, item *db.PodcastItem, detail string) {
+	if _, err := fmt.Fprintf(file, "%s\t%s\t%s\t%s\n", time.Now().Format(time.RFC3339), status, filepath.Base(item.DownloadPath), detail); err != nil {
+		Logger.Errorw("Could not append ID3 check log", "episode", item.ID, "error", err)
+	}
+}
+
+func id3CheckSidecarPath(audioPath string, imagePath string) string {
+	return strings.TrimSuffix(audioPath, filepath.Ext(audioPath)) + filepath.Ext(imagePath)
+}
+
+func filesHaveSameContents(firstPath string, secondPath string) bool {
+	first, err := ioutil.ReadFile(firstPath)
+	if err != nil {
+		return false
+	}
+	second, err := ioutil.ReadFile(secondPath)
+	return err == nil && bytes.Equal(first, second)
+}
+
+func copyID3CheckSidecar(sourcePath string, destinationPath string) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	temporary, err := ioutil.TempFile(filepath.Dir(destinationPath), ".podgrab-sidecar-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err := io.Copy(temporary, source); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, destinationPath); err != nil {
+		return err
+	}
+	changeOwnership(destinationPath)
+	return nil
 }
 
 func writeID3Cover(tag *id3v2.Tag, _ id3v2.Encoding, imagePath string) error {

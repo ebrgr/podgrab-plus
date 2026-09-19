@@ -200,6 +200,28 @@ func DownloadAllEpisodesByPodcastId(c *gin.Context) {
 	}
 }
 
+// CheckDownloadedEpisodeID3ByPodcastId starts a background check of all local
+// episode files for a podcast. It repairs missing or outdated ID3 data and
+// writes the result beside the downloaded audio files.
+func CheckDownloadedEpisodeID3ByPodcastId(c *gin.Context) {
+	var searchByIDQuery SearchByIdQuery
+	if err := c.ShouldBindUri(&searchByIDQuery); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid podcast ID"})
+		return
+	}
+
+	started, err := service.StartDownloadedEpisodeID3Check(searchByIDQuery.Id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+	if !started {
+		c.JSON(http.StatusConflict, gin.H{"message": "An ID3 check is already running for this podcast"})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"message": "ID3 check started. Results will be written to podgrab-id3-check.log beside the downloaded episodes."})
+}
+
 func GetAllPodcastItems(c *gin.Context) {
 	var filter model.EpisodesFilter
 	err := c.ShouldBindQuery(&filter)
