@@ -664,6 +664,21 @@ func id3CheckLogLine(file *os.File, status string, item *db.PodcastItem, detail 
 	if _, err := fmt.Fprintf(file, "%s\t%s\t%s\t%s\n", time.Now().Format(time.RFC3339), status, filepath.Base(item.DownloadPath), detail); err != nil {
 		Logger.Errorw("Could not append ID3 check log", "episode", item.ID, "error", err)
 	}
+	fields := []interface{}{
+		"status", status,
+		"podcast", item.Podcast.Title,
+		"episode", item.Title,
+		"file", item.DownloadPath,
+		"detail", detail,
+	}
+	switch status {
+	case "ERROR":
+		Logger.Errorw("Downloaded episode ID3 check", fields...)
+	case "WARNING":
+		Logger.Warnw("Downloaded episode ID3 check", fields...)
+	default:
+		Logger.Infow("Downloaded episode ID3 check", fields...)
+	}
 }
 
 func id3CheckSidecarPath(audioPath string, imagePath string) string {
