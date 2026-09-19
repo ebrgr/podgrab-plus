@@ -116,13 +116,13 @@ The easiest way to run Podgrab is to run it as a docker container.
 Simple setup without mounted volumes (for testing and evaluation)
 
 ```sh
-  docker run -d -p 8080:8080 --name=podgrab ebrgr/podgrab-plus
+  docker run -d -p 8080:8080 --name=podgrab ghcr.io/ebrgr/podgrab-plus:latest
 ```
 
 Binding local volumes to the container
 
 ```sh
-   docker run -d -p 8080:8080 --name=podgrab -v "/host/path/to/assets:/assets" -v "/host/path/to/config:/config"  ebrgr/podgrab-plus
+   docker run -d -p 8080:8080 --name=podgrab -v "/host/path/to/assets:/assets" -v "/host/path/to/config:/config" ghcr.io/ebrgr/podgrab-plus:latest
 ```
 
 ### Using Docker-Compose
@@ -133,7 +133,7 @@ Modify the docker compose file provided [here](https://github.com/ebrgr/podgrab-
 version: "2.1"
 services:
   podgrab:
-    image: ebrgr/podgrab-plus
+    image: ghcr.io/ebrgr/podgrab-plus:latest
     container_name: podgrab
     environment:
       - CHECK_FREQUENCY=240
@@ -185,6 +185,21 @@ ID3 editing and Navidrome updates are disabled by default and can be enabled
 from the Settings page. Navidrome connection values saved in the UI take
 precedence over environment variables; environment variables remain available
 as a fallback.
+
+#### Navidrome library layout
+
+If your Navidrome `/music` directory contains the Podgrab downloads, add an
+`.ndignore` file to `/music` with the following content:
+
+```text
+/podcast/**
+```
+
+This prevents the main Navidrome library from indexing the `/music/podcast/`
+folder. Then create a second Navidrome library whose path points to that
+podcast folder. Keeping podcasts in their own library separates them from the
+main music collection while allowing the post-download integration to scan and
+manage their albums and playlists.
 
 ### Setup
 

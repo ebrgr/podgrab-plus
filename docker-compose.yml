@@ -1,7 +1,7 @@
 version: "2.1"
 services:
   podgrab:
-    image: ebrgr/podgrab-plus
+    image: ghcr.io/ebrgr/podgrab-plus:latest
     container_name: podgrab
     environment:
       - CHECK_FREQUENCY=240
