@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"html"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -13,9 +14,9 @@ import (
 	"time"
 
 	"github.com/TheHippo/podcastindex"
+	"github.com/antchfx/xmlquery"
 	"github.com/ebrgr/podgrab-plus/db"
 	"github.com/ebrgr/podgrab-plus/model"
-	"github.com/antchfx/xmlquery"
 	strip "github.com/grokify/html-strip-tags-go"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -219,9 +220,9 @@ func AddPodcast(url string) (db.Podcast, error) {
 		}
 
 		podcast := db.Podcast{
-			Title:   data.Channel.Title,
+			Title:   normalizeRSSPlainText(data.Channel.Title),
 			Summary: strip.StripTags(data.Channel.Summary),
-			Author:  data.Channel.Author,
+			Author:  normalizeRSSPlainText(data.Channel.Author),
 			Image:   data.Channel.Image.URL,
 			URL:     url,
 		}
@@ -250,6 +251,12 @@ func AddPodcastItems(podcast *db.Podcast, newPodcast bool) error {
 		return err
 	}
 	setting := db.GetOrCreateSetting()
+	if title := normalizeRSSPlainText(data.Channel.Title); title != "" && podcast.Title != title {
+		podcast.Title = title
+		if err := db.UpdatePodcast(podcast); err != nil {
+			return err
+		}
+	}
 	limit := setting.InitialDownloadCount
 	// if len(data.Channel.Item) < limit {
 	// 	limit = len(data.Channel.Item)
@@ -262,16 +269,29 @@ func AddPodcastItems(podcast *db.Podcast, newPodcast bool) error {
 
 	existingItems, err := db.GetPodcastItemsByPodcastIdAndGUIDs(podcast.ID, allGuids)
 	keyMap := make(map[string]int)
+	existingByGUID := make(map[string]db.PodcastItem)
 
 	for _, item := range *existingItems {
 		keyMap[item.GUID] = 1
+		existingByGUID[item.GUID] = item
 	}
 	var latestDate = time.Time{}
 	var itemsAdded = make(map[string]string)
 	for i := 0; i < len(data.Channel.Item); i++ {
 		obj := data.Channel.Item[i]
+		title := normalizeRSSPlainText(obj.Title)
 		var podcastItem db.PodcastItem
 		_, keyExists := keyMap[obj.Guid.Text]
+		if keyExists {
+			existing := existingByGUID[obj.Guid.Text]
+			if existing.Title != title {
+				existing.Title = title
+				if err := db.UpdatePodcastItem(&existing); err != nil {
+					return err
+				}
+			}
+			continue
+		}
 		if !keyExists {
 			duration, _ := strconv.Atoi(obj.Duration)
 			toParse := strings.TrimSpace(obj.PubDate)
@@ -334,7 +354,7 @@ func AddPodcastItems(podcast *db.Podcast, newPodcast bool) error {
 
 			podcastItem = db.PodcastItem{
 				PodcastID:      podcast.ID,
-				Title:          obj.Title,
+				Title:          title,
 				Summary:        summary,
 				EpisodeType:    obj.EpisodeType,
 				Duration:       duration,
@@ -353,6 +373,21 @@ func AddPodcastItems(podcast *db.Podcast, newPodcast bool) error {
 	}
 	//go updateSizeFromUrl(itemsAdded)
 	return err
+}
+
+// normalizeRSSPlainText decodes HTML entities that remain after XML parsing.
+// Some feeds double-escape entities (for example &amp;#8211;), which otherwise
+// reaches the database and filenames as the literal text "&#8211;".
+func normalizeRSSPlainText(value string) string {
+	value = strings.TrimSpace(value)
+	for i := 0; i < 3; i++ {
+		decoded := html.UnescapeString(value)
+		if decoded == value {
+			break
+		}
+		value = decoded
+	}
+	return value
 }
 
 func updateSizeFromUrl(itemUrlMap map[string]string) {
