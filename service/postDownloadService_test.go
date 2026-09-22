@@ -28,6 +28,7 @@ func TestWriteEpisodeID3(t *testing.T) {
 	}
 	original.SetVersion(3)
 	original.SetTitle("placeholder")
+	original.AddTextFrame("TPE2", id3v2.EncodingUTF16, "Legacy album artist")
 	if err := original.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +64,9 @@ func TestWriteEpisodeID3(t *testing.T) {
 	}
 	if tag.Version() != 3 || tag.GetTextFrame(tag.CommonID("Year")).Text != "2026" {
 		t.Fatalf("expected ID3v2.3 date frames, got version=%d year=%q", tag.Version(), tag.GetTextFrame(tag.CommonID("Year")).Text)
+	}
+	if frames := tag.GetFrames("TPE2"); len(frames) != 0 {
+		t.Fatalf("expected Album Artist (TPE2) to be empty, got %d frame(s)", len(frames))
 	}
 	pictures := tag.GetFrames(tag.CommonID("Attached picture"))
 	if len(pictures) != 1 {

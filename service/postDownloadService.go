@@ -331,6 +331,9 @@ func writeEpisodeID3(mediaPath string, attrs []string, metadata episodeMetadata,
 		encoding = id3v2.EncodingUTF16
 	}
 	tag.SetDefaultEncoding(encoding)
+	// TPE2 is Album Artist in ID3v2.3/v2.4. Podcast files should not inherit
+	// this value from the source MP3, so remove it instead of writing a value.
+	tag.DeleteFrames("TPE2")
 	enabled := stringSet(attrs)
 	if enabled["title"] {
 		tag.SetTitle(metadata.Title)
